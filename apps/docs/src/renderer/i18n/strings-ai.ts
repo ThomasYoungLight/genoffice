@@ -90,6 +90,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: '页面设置',
     aiSumHeaderFooter: '页眉页脚',
     aiSumPageBreak: '分页符',
+    aiSumComments: '批注',
+    aiSumShape: '形状',
     aiSumSources: '参考文献来源',
     aiCmdNone: '没有命中需要修改的块,文档未改动。',
     aiCmdNoneSkipped:
@@ -199,6 +201,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: 'Page setup',
     aiSumHeaderFooter: 'Header and footer',
     aiSumPageBreak: 'Page break',
+    aiSumComments: 'Comments',
+    aiSumShape: 'Shape',
     aiSumSources: 'Bibliography sources',
     aiCmdNone: 'No matching blocks; the document was not changed.',
     aiCmdNoneSkipped:
@@ -308,6 +312,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: 'ページ設定',
     aiSumHeaderFooter: 'ヘッダーとフッター',
     aiSumPageBreak: '改ページ',
+    aiSumComments: 'コメント',
+    aiSumShape: '図形',
     aiSumSources: '参考文献ソース',
     aiCmdNone: '変更対象のブロックが見つからなかったため、文書は変更されていません。',
     aiCmdNoneSkipped:
@@ -417,6 +423,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: '페이지 설정',
     aiSumHeaderFooter: '머리글 및 바닥글',
     aiSumPageBreak: '페이지 나누기',
+    aiSumComments: '메모',
+    aiSumShape: '도형',
     aiSumSources: '참고 문헌 원본',
     aiCmdNone: '수정할 블록이 없어 문서가 변경되지 않았습니다.',
     aiCmdNoneSkipped:
@@ -528,6 +536,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: 'Mise en page',
     aiSumHeaderFooter: 'En-tête et pied de page',
     aiSumPageBreak: 'Saut de page',
+    aiSumComments: 'Commentaires',
+    aiSumShape: 'Forme',
     aiSumSources: 'Sources bibliographiques',
     aiCmdNone: "Aucun bloc correspondant ; le document n'a pas été modifié.",
     aiCmdNoneSkipped:
@@ -638,6 +648,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: 'Seite einrichten',
     aiSumHeaderFooter: 'Kopf- und Fußzeile',
     aiSumPageBreak: 'Seitenumbruch',
+    aiSumComments: 'Kommentare',
+    aiSumShape: 'Form',
     aiSumSources: 'Literaturquellen',
     aiCmdNone: 'Keine passenden Blöcke gefunden; das Dokument wurde nicht geändert.',
     aiCmdNoneSkipped:
@@ -747,6 +759,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: 'Configuración de página',
     aiSumHeaderFooter: 'Encabezado y pie de página',
     aiSumPageBreak: 'Salto de página',
+    aiSumComments: 'Comentarios',
+    aiSumShape: 'Forma',
     aiSumSources: 'Fuentes bibliográficas',
     aiCmdNone: 'No hay bloques coincidentes; el documento no se modificó.',
     aiCmdNoneSkipped:
@@ -856,6 +870,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: 'ตั้งค่าหน้ากระดาษ',
     aiSumHeaderFooter: 'หัวและท้ายกระดาษ',
     aiSumPageBreak: 'ตัวแบ่งหน้า',
+    aiSumComments: 'ข้อคิดเห็น',
+    aiSumShape: 'รูปร่าง',
     aiSumSources: 'แหล่งข้อมูลบรรณานุกรม',
     aiCmdNone: 'ไม่พบบล็อกที่ต้องแก้ไข เอกสารไม่มีการเปลี่ยนแปลง',
     aiCmdNoneSkipped:
@@ -965,6 +981,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: 'Pengaturan halaman',
     aiSumHeaderFooter: 'Header dan footer',
     aiSumPageBreak: 'Pemisah halaman',
+    aiSumComments: 'Komentar',
+    aiSumShape: 'Bentuk',
     aiSumSources: 'Sumber bibliografi',
     aiCmdNone: 'Tidak ada blok yang cocok; dokumen tidak diubah.',
     aiCmdNoneSkipped:
@@ -1074,6 +1092,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: 'Параметры страницы',
     aiSumHeaderFooter: 'Колонтитулы',
     aiSumPageBreak: 'Разрыв страницы',
+    aiSumComments: 'Примечания',
+    aiSumShape: 'Фигура',
     aiSumSources: 'Библиографические источники',
     aiCmdNone: 'Подходящих блоков не найдено; документ не изменен.',
     aiCmdNoneSkipped:
@@ -1183,6 +1203,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: 'إعداد الصفحة',
     aiSumHeaderFooter: 'الرأس والتذييل',
     aiSumPageBreak: 'فاصل صفحات',
+    aiSumComments: 'التعليقات',
+    aiSumShape: 'شكل',
     aiSumSources: 'مصادر المراجع',
     aiCmdNone: 'لا توجد كتل مطابقة؛ لم يتغير المستند.',
     aiCmdNoneSkipped:
@@ -1292,6 +1314,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: 'Configuração da página',
     aiSumHeaderFooter: 'Cabeçalho e rodapé',
     aiSumPageBreak: 'Quebra de página',
+    aiSumComments: 'Comentários',
+    aiSumShape: 'Forma',
     aiSumSources: 'Fontes bibliográficas',
     aiCmdNone: 'Nenhum bloco correspondente; o documento não foi alterado.',
     aiCmdNoneSkipped:
@@ -1404,6 +1428,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: 'Imposta pagina',
     aiSumHeaderFooter: 'Intestazione e piè di pagina',
     aiSumPageBreak: 'Interruzione di pagina',
+    aiSumComments: 'Commenti',
+    aiSumShape: 'Forma',
     aiSumSources: 'Fonti bibliografiche',
     aiCmdNone: 'Nessun blocco corrispondente; il documento non è stato modificato.',
     aiCmdNoneSkipped:
@@ -1513,6 +1539,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: 'Ustawienia strony',
     aiSumHeaderFooter: 'Nagłówek i stopka',
     aiSumPageBreak: 'Podział strony',
+    aiSumComments: 'Komentarze',
+    aiSumShape: 'Kształt',
     aiSumSources: 'Źródła bibliograficzne',
     aiCmdNone: 'Brak pasujących bloków; dokument nie został zmieniony.',
     aiCmdNoneSkipped:
@@ -1622,6 +1650,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: 'Pagina-instelling',
     aiSumHeaderFooter: 'Kop- en voettekst',
     aiSumPageBreak: 'Pagina-einde',
+    aiSumComments: 'Opmerkingen',
+    aiSumShape: 'Vorm',
     aiSumSources: 'Bibliografiebronnen',
     aiCmdNone: 'Geen overeenkomende blokken; het document is niet gewijzigd.',
     aiCmdNoneSkipped:
@@ -1731,6 +1761,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: 'Persediaan halaman',
     aiSumHeaderFooter: 'Pengepala dan pengaki',
     aiSumPageBreak: 'Pemisah halaman',
+    aiSumComments: 'Komen',
+    aiSumShape: 'Bentuk',
     aiSumSources: 'Sumber bibliografi',
     aiCmdNone: 'Tiada blok sepadan; dokumen tidak diubah.',
     aiCmdNoneSkipped:
@@ -1840,6 +1872,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: 'הגדרת עמוד',
     aiSumHeaderFooter: 'כותרת עליונה ותחתונה',
     aiSumPageBreak: 'מעבר עמוד',
+    aiSumComments: 'הערות',
+    aiSumShape: 'צורה',
     aiSumSources: 'מקורות ביבליוגרפיים',
     aiCmdNone: 'לא נמצאו בלוקים מתאימים; המסמך לא שונה.',
     aiCmdNoneSkipped:
@@ -1949,6 +1983,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: 'पृष्ठ सेटअप',
     aiSumHeaderFooter: 'शीर्षलेख और पादलेख',
     aiSumPageBreak: 'पृष्ठ विराम',
+    aiSumComments: 'टिप्पणियाँ',
+    aiSumShape: 'आकार',
     aiSumSources: 'ग्रंथसूची स्रोत',
     aiCmdNone: 'कोई मेल खाता ब्लॉक नहीं; दस्तावेज़ में बदलाव नहीं हुआ।',
     aiCmdNoneSkipped:
@@ -2056,6 +2092,8 @@ export const aiStrings = defineStrings({
     aiSumPageSetup: '頁面設定',
     aiSumHeaderFooter: '頁首頁尾',
     aiSumPageBreak: '分頁符號',
+    aiSumComments: '註解',
+    aiSumShape: '圖形',
     aiSumSources: '參考文獻來源',
     aiCmdNone: '沒有命中需要修改的區塊,文件未變更。',
     aiCmdNoneSkipped:

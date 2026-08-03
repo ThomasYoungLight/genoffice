@@ -79,6 +79,8 @@ import {
   type InkPenSettings,
   type RevisionDisplayMode,
   type ViewMode,
+  insertShapeAt,
+  insertTextboxAt,
 } from './components/ribbon-tabs'
 import { ComparePanel } from './components/ComparePanel'
 import {
@@ -1259,8 +1261,8 @@ export function App() {
 
   const submitNote = useCallback((text: string) => submitNoteImpl(reviewCtxRef.current, text), [])
 
-  const extrasStateRef = useRef({ watermark, sources, header, footer, section })
-  extrasStateRef.current = { watermark, sources, header, footer, section }
+  const extrasStateRef = useRef({ watermark, sources, header, footer, section, comments })
+  extrasStateRef.current = { watermark, sources, header, footer, section, comments }
 
   /**
    * The agent's handle on the document parts that are not in the editor tree.
@@ -1312,6 +1314,25 @@ export function App() {
       setPageSetup: (next: SectionSettings) => {
         setSection(next)
         setSectionDirty(true)
+      },
+      comments: () => extrasStateRef.current.comments,
+      addComment: (text: string) => {
+        const before = extrasStateRef.current.comments.length
+        submitNewCommentImpl(reviewCtxRef.current, text)
+        // the mark only lands if the selection still resolves to a range; the
+        // impl reports that by leaving the list alone
+        return reviewCtxRef.current.comments.length === before
+      },
+      replyToComment: (parentId: string, text: string) =>
+        replyToCommentImpl(reviewCtxRef.current, parentId, text),
+      resolveComment: (id: string, done: boolean) =>
+        resolveCommentImpl(reviewCtxRef.current, id, done),
+      deleteComment: (id: string) => deleteCommentImpl(reviewCtxRef.current, id),
+      insertTextbox: () => {
+        if (editorRef.current) insertTextboxAt(editorRef.current)
+      },
+      insertShape: (preset: string) => {
+        if (editorRef.current) insertShapeAt(editorRef.current, preset)
       },
     }),
     [],

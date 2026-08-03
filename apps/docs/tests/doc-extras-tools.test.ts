@@ -12,9 +12,38 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { executeTool, type DocExtras } from '../src/renderer/ai/tools'
 import type { AgentToolCall } from '../src/shared/ipc'
 import type { Editor } from '@tiptap/core'
-import type { HeaderFooter, NoteInfo, SectionSettings, SourceInfo } from '@genoffice/docx-engine'
+import type {
+  CommentInfo,
+  HeaderFooter,
+  NoteInfo,
+  SectionSettings,
+  SourceInfo,
+} from '@genoffice/docx-engine'
 
-const editor = {} as Editor
+/**
+ * Enough of an editor for the tools that position before they commit: three
+ * blocks and a selection that records what was asked for. The comment tool
+ * resolves a block range to document positions itself, so a stub that only
+ * answered childCount would let a bad range through untested.
+ */
+const selection = { from: 0, to: 0 }
+const editor = {
+  state: {
+    doc: {
+      childCount: 3,
+      forEach: (fn: (node: { nodeSize: number }, offset: number) => void) => {
+        for (let i = 0; i < 3; i++) fn({ nodeSize: 10 }, i * 10)
+      },
+    },
+  },
+  commands: {
+    setTextSelection: (range: { from: number; to: number }) => {
+      selection.from = range.from
+      selection.to = range.to
+      return true
+    },
+  },
+} as unknown as Editor
 const numIds = { bullet: null, ordered: null }
 
 function makeExtras() {
@@ -23,6 +52,8 @@ function makeExtras() {
     endnote: [] as NoteInfo[],
     watermark: null as string | null,
     sources: [] as SourceInfo[],
+    comments: [] as CommentInfo[],
+    shapes: [] as string[],
     header: null as HeaderFooter | null,
     footer: null as HeaderFooter | null,
     // A4 portrait with 2.54 cm margins, the shape a fresh document has
@@ -71,6 +102,26 @@ function makeExtras() {
     pageSetup: () => state.section,
     setPageSetup: (next) => {
       state.section = next
+    },
+    comments: () => state.comments,
+    addComment: (text) => {
+      state.comments = [...state.comments, { id: `c${++seq}`, author: 'AI', text }]
+      return true
+    },
+    replyToComment: (parentId, text) => {
+      state.comments = [...state.comments, { id: `c${++seq}`, author: 'AI', text, parentId }]
+    },
+    resolveComment: (id, done) => {
+      state.comments = state.comments.map((c) => (c.id === id ? { ...c, done } : c))
+    },
+    deleteComment: (id) => {
+      state.comments = state.comments.filter((c) => c.id !== id)
+    },
+    insertTextbox: () => {
+      state.shapes.push('textbox')
+    },
+    insertShape: (preset) => {
+      state.shapes.push(preset)
     },
   }
   return { extras, state }
@@ -280,5 +331,107 @@ describe('set_header_footer', () => {
 
   it('rejects a kind that is neither header nor footer', () => {
     expect(run('set_header_footer', { kind: 'sidebar', text: 'x' }).isError).toBe(true)
+  })
+})
+
+describe('manage_comments', () => {
+  it('anchors a comment to the block range it was given', () => {
+    const r = run('manage_comments', {
+      action: 'add',
+      startBlockIndex: 1,
+      text: 'Check this figure',
+    })
+    expect(r.isError).toBeUndefined()
+    expect(state.comments[0]?.text).toBe('Check this figure')
+    // block 1 of three 10-wide blocks
+    expect(selection.from).toBe(10)
+    expect(selection.to).toBe(20)
+  })
+
+  it('spans a multi-block range', () => {
+    run('manage_comments', { action: 'add', startBlockIndex: 0, endBlockIndex: 2, text: 'Rework' })
+    expect(selection.from).toBe(0)
+    expect(selection.to).toBe(30)
+  })
+
+  it('refuses a range outside the document instead of anchoring somewhere else', () => {
+    const r = run('manage_comments', { action: 'add', startBlockIndex: 9, text: 'x' })
+    expect(r.isError).toBe(true)
+    expect(state.comments).toHaveLength(0)
+  })
+
+  it('refuses an end before the start', () => {
+    const r = run('manage_comments', {
+      action: 'add',
+      startBlockIndex: 2,
+      endBlockIndex: 0,
+      text: 'x',
+    })
+    expect(r.isError).toBe(true)
+  })
+
+  it('refuses an empty comment', () => {
+    expect(run('manage_comments', { action: 'add', startBlockIndex: 0, text: '  ' }).isError).toBe(
+      true,
+    )
+  })
+
+  it('threads a reply under a comment', () => {
+    run('manage_comments', { action: 'add', startBlockIndex: 0, text: 'Parent' })
+    const id = state.comments[0]!.id
+    run('manage_comments', { action: 'reply', id, text: 'Agreed' })
+    expect(state.comments[1]?.parentId).toBe(id)
+  })
+
+  it('resolves and reopens', () => {
+    run('manage_comments', { action: 'add', startBlockIndex: 0, text: 'Parent' })
+    const id = state.comments[0]!.id
+    run('manage_comments', { action: 'resolve', id })
+    expect(state.comments[0]?.done).toBe(true)
+    run('manage_comments', { action: 'resolve', id, done: false })
+    expect(state.comments[0]?.done).toBe(false)
+  })
+
+  it('deletes by id and rejects an id that is not there', () => {
+    run('manage_comments', { action: 'add', startBlockIndex: 0, text: 'Parent' })
+    const id = state.comments[0]!.id
+    expect(run('manage_comments', { action: 'delete', id: 'nope' }).isError).toBe(true)
+    run('manage_comments', { action: 'delete', id })
+    expect(state.comments).toHaveLength(0)
+  })
+
+  it('lists what is there, resolved state included', () => {
+    run('manage_comments', { action: 'add', startBlockIndex: 0, text: 'Parent' })
+    run('manage_comments', { action: 'resolve', id: state.comments[0]!.id })
+    const r = run('manage_comments', { action: 'list' })
+    expect(r.mutated).toBeFalsy()
+    expect(r.output).toContain('resolved')
+  })
+})
+
+describe('insert_shape', () => {
+  it('inserts a text box', () => {
+    run('insert_shape', { kind: 'textbox' })
+    expect(state.shapes).toEqual(['textbox'])
+  })
+
+  it('defaults an unnamed shape to a rectangle', () => {
+    run('insert_shape', { kind: 'shape' })
+    expect(state.shapes).toEqual(['rect'])
+  })
+
+  it('passes a named preset through', () => {
+    run('insert_shape', { kind: 'shape', preset: 'roundRect' })
+    expect(state.shapes).toEqual(['roundRect'])
+  })
+
+  it('rejects a preset name that is not one, rather than writing it into the XML', () => {
+    const r = run('insert_shape', { kind: 'shape', preset: 'rect"/><evil' })
+    expect(r.isError).toBe(true)
+    expect(state.shapes).toHaveLength(0)
+  })
+
+  it('rejects an unknown kind', () => {
+    expect(run('insert_shape', { kind: 'blob' }).isError).toBe(true)
   })
 })

@@ -1,6 +1,7 @@
 import type { Editor } from '@tiptap/core'
 import type {
   ChartDisplay,
+  CommentInfo,
   HeaderFooter,
   NewChart,
   NoteInfo,
@@ -145,6 +146,44 @@ export const AGENT_TOOLS: AgentToolDef[] = [
         },
       },
       required: ['afterBlockIndex'],
+    },
+  },
+  {
+    name: 'manage_comments',
+    description:
+      'Review comments anchored to the text — the margin notes a reviewer leaves, not footnotes (those are manage_notes). action=list returns every comment with its id, author and whether it is resolved; add attaches a new one to a block range; reply threads under an existing comment; resolve marks one done or reopens it; delete removes it. Use add when the user asks you to "comment on" or "flag" something rather than change it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['list', 'add', 'reply', 'resolve', 'delete'] },
+        text: { type: 'string', description: 'Comment body, for add and reply' },
+        startBlockIndex: { type: 'integer', description: 'Block range to anchor to, for add' },
+        endBlockIndex: { type: 'integer', description: 'Defaults to startBlockIndex' },
+        id: { type: 'string', description: 'Comment id from list, for reply/resolve/delete' },
+        done: { type: 'boolean', description: 'resolve: true marks done, false reopens' },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'insert_shape',
+    description:
+      'Insert a floating text box or a preset shape at the cursor — a callout, a highlighted aside, an arrow. These float over the page rather than sitting in the text flow, so use them for annotation and emphasis, not for body content, which belongs in insert_content.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: {
+          type: 'string',
+          enum: ['textbox', 'shape'],
+          description: 'A text box, or a preset geometric shape',
+        },
+        preset: {
+          type: 'string',
+          description:
+            "Shape geometry when kind is 'shape': rect, roundRect, ellipse, triangle, diamond, star5, rightArrow, and the other OOXML presets. Ignored for a text box.",
+        },
+      },
+      required: ['kind'],
     },
   },
   {
@@ -513,6 +552,15 @@ export interface DocExtras {
   /** page size, orientation, margins and columns of the current section */
   pageSetup(): SectionSettings | null
   setPageSetup(next: SectionSettings): void
+  comments(): CommentInfo[]
+  /** comment on the editor's current selection, which the caller positions first */
+  addComment(text: string): boolean
+  replyToComment(parentId: string, text: string): void
+  resolveComment(id: string, done: boolean): void
+  deleteComment(id: string): void
+  /** insert a floating text box or preset shape at the cursor */
+  insertTextbox(): void
+  insertShape(preset: string): void
 }
 
 export type NoteKind = 'footnote' | 'endnote'
@@ -967,6 +1015,84 @@ export function executeTool(
         mutated: true,
         summary: t('aiSumPageBreak'),
       }
+    }
+
+    case 'manage_comments': {
+      if (!extras) return fail(call.name, 'Comments are not available in this window')
+      const action = String(call.input.action ?? '')
+      const list = extras.comments()
+      const render = (items: CommentInfo[]) =>
+        items.length
+          ? items
+              .map(
+                (c) =>
+                  `${c.id} | ${c.author}${c.done ? ' | resolved' : ''}${c.parentId ? ` | reply to ${c.parentId}` : ''} | ${c.text}`,
+              )
+              .join('\n')
+          : 'The document has no comments.'
+      if (action === 'list')
+        return { output: render(list), mutated: false, summary: t('aiSumComments') }
+
+      if (action === 'add') {
+        const text = String(call.input.text ?? '').trim()
+        if (!text) return fail(call.name, 'A comment needs text')
+        const total = editor.state.doc.childCount
+        const start = Number(call.input.startBlockIndex)
+        if (!Number.isInteger(start) || start < 0 || start >= total)
+          return fail(call.name, `startBlockIndex out of range (0-${total - 1})`)
+        const end = Number(call.input.endBlockIndex ?? start)
+        if (!Number.isInteger(end) || end < start || end >= total)
+          return fail(call.name, `endBlockIndex out of range (${start}-${total - 1})`)
+        // the comment attaches to whatever is selected, so the range has to be
+        // the selection before the commit runs
+        const { from, to } = blockRangePositions(editor, start, end)
+        editor.commands.setTextSelection({ from, to })
+        if (!extras.addComment(text)) return fail(call.name, 'The comment could not be anchored')
+        return {
+          output: `Commented on block${end > start ? `s ${start}-${end}` : ` ${start}`}.`,
+          mutated: true,
+          summary: t('aiSumComments'),
+        }
+      }
+
+      const id = String(call.input.id ?? '')
+      if (!id) return fail(call.name, `${action} needs a comment id from list`)
+      if (!list.some((c) => c.id === id)) return fail(call.name, `No comment with id ${id}`)
+      if (action === 'reply') {
+        const text = String(call.input.text ?? '').trim()
+        if (!text) return fail(call.name, 'A reply needs text')
+        extras.replyToComment(id, text)
+        return { output: `Replied to ${id}.`, mutated: true, summary: t('aiSumComments') }
+      }
+      if (action === 'resolve') {
+        const done = call.input.done === undefined ? true : Boolean(call.input.done)
+        extras.resolveComment(id, done)
+        return {
+          output: `${done ? 'Resolved' : 'Reopened'} ${id}.`,
+          mutated: true,
+          summary: t('aiSumComments'),
+        }
+      }
+      if (action === 'delete') {
+        extras.deleteComment(id)
+        return { output: `Deleted ${id}.`, mutated: true, summary: t('aiSumComments') }
+      }
+      return fail(call.name, `Unknown action "${action}"`)
+    }
+
+    case 'insert_shape': {
+      if (!extras) return fail(call.name, 'Shapes are not available in this window')
+      const kind = String(call.input.kind ?? '')
+      if (kind === 'textbox') {
+        extras.insertTextbox()
+        return { output: 'Inserted a text box.', mutated: true, summary: t('aiSumShape') }
+      }
+      if (kind !== 'shape') return fail(call.name, "kind must be 'textbox' or 'shape'")
+      const preset = String(call.input.preset ?? 'rect').trim() || 'rect'
+      if (!/^[a-zA-Z][a-zA-Z0-9]*$/.test(preset))
+        return fail(call.name, `"${preset}" is not a preset geometry name`)
+      extras.insertShape(preset)
+      return { output: `Inserted a ${preset} shape.`, mutated: true, summary: t('aiSumShape') }
     }
 
     case 'set_watermark': {
