@@ -2,7 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactElement } from 'react'
 import { AgentLoop } from '@genoffice/agent-core'
 import type { AiSettings } from '@genoffice/ai-provider'
-import { AiComposer, AiTypingIndicator } from '@genoffice/ui'
+import {
+  AiComposer,
+  AiModelPicker,
+  AiSettingsButton,
+  AiTypingIndicator,
+  type AiSettingsHost,
+} from '@genoffice/ui'
 import { aiLangDirective, t as tGlobal, useI18n } from '../i18n/locale'
 import { Markdown } from '@genoffice/ui'
 import sendEnterOn from '../assets/send-enter-on.png'
@@ -44,6 +50,17 @@ interface ChatEntry {
 
 type Phase = 'thinking' | 'replying' | 'working'
 
+/** window.pdfApi, adapted to the shape the shared provider dialog expects */
+const AI_SETTINGS_HOST: AiSettingsHost = {
+  getAiSettings: () => window.pdfApi.getAiSettings(),
+  setAiSettings: (settings) => window.pdfApi.setAiSettings(settings),
+  gskStatus: () => window.pdfApi.aiGskStatus(true),
+  gskLogin: () => void window.pdfApi.aiGskLogin(),
+  aiTestProvider: (request) => window.pdfApi.aiTestProvider(request),
+  aiListModels: (request) => window.pdfApi.aiListModels(request),
+  aiCliStatus: (provider) => window.pdfApi.aiCliStatus(provider),
+}
+
 export function AiPanel({
   api,
   onCollapse,
@@ -68,7 +85,23 @@ export function AiPanel({
     const dock = asideRef.current?.closest('.ai-dock') as HTMLElement | null
     dock?.style.setProperty('--ai-panel-width', `${panelWidth}px`)
   }, [panelWidth])
+  /**
+   * The agent loop reads settings off the ref (they are refreshed just before
+   * every run, since another window may have changed them); the composer's
+   * model picker needs the same value as state to render it. `applySettings`
+   * keeps the two together — never assign the ref during render, or a
+   * re-render between the refresh and the state commit would undo it.
+   */
+  const [settings, setSettings] = useState<AiSettings | null>(null)
   const settingsRef = useRef<AiSettings | null>(null)
+  const applySettings = (next: AiSettings) => {
+    settingsRef.current = next
+    setSettings(next)
+  }
+  // first read, so the composer can name the backend before anything is sent
+  useEffect(() => {
+    void window.pdfApi.getAiSettings().then(applySettings)
+  }, [])
   const langRef = useRef(lang)
   langRef.current = lang
   const apiRef = useRef(api)
@@ -191,7 +224,7 @@ export function AiPanel({
     setPhase('thinking')
     void (async () => {
       try {
-        settingsRef.current = await window.pdfApi.getAiSettings()
+        applySettings(await window.pdfApi.getAiSettings())
         await loop.run(instruction)
       } catch (err) {
         patchLast({
@@ -259,6 +292,12 @@ export function AiPanel({
           Genspark
         </span>
         <div className="ai-panel-header-actions">
+          <AiSettingsButton
+            className="ai-header-btn"
+            lang={lang}
+            host={AI_SETTINGS_HOST}
+            onSaved={applySettings}
+          />
           {chat.length > 0 && (
             <button
               className="ai-header-btn"
@@ -344,6 +383,16 @@ export function AiPanel({
           onChange={setPrompt}
           onSend={() => send(prompt)}
           onStop={stop}
+          footerStart={
+            settings && (
+              <AiModelPicker
+                settings={settings}
+                lang={lang}
+                host={AI_SETTINGS_HOST}
+                onChange={applySettings}
+              />
+            )
+          }
         />
       </div>
     </aside>

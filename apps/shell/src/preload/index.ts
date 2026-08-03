@@ -1,6 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
+  AiProviderProbeRequest,
+  AiSettings,
+  CliStatus,
+  ModelListResult,
+  ProviderProbeResult,
+} from '@genoffice/ai-provider'
+import type {
   AccountStatus,
   HomeApi,
   RecentEntry,
@@ -110,6 +117,21 @@ const homeApi: HomeApi = {
   async setLanguage(lang) {
     if (!isUiLanguage(lang)) throw new Error('Invalid language.')
     await ipcRenderer.invoke(HOME_CHANNELS.setLanguage, lang)
+  },
+  async getAiSettings() {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.getAiSettings)) as AiSettings
+  },
+  async setAiSettings(settings) {
+    await ipcRenderer.invoke(HOME_CHANNELS.setAiSettings, settings)
+  },
+  async aiTestProvider(request: AiProviderProbeRequest) {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.aiTestProvider, request)) as ProviderProbeResult
+  },
+  async aiListModels(request: AiProviderProbeRequest) {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.aiListModels, request)) as ModelListResult
+  },
+  async aiCliStatus(provider: string) {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.aiCliStatus, provider)) as CliStatus
   },
   async accountStatus() {
     const result: unknown = await ipcRenderer.invoke(HOME_CHANNELS.accountStatus)

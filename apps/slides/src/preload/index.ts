@@ -17,6 +17,7 @@ import type {
   AddTableOp,
   HeaderFooterOp,
   SetLinkOp,
+  AiProviderProbeRequest,
   AiSettings,
   CopyElementsOp,
   PasteElementsOp,
@@ -265,6 +266,10 @@ const api: SlidesApi = {
   },
   getAiSettings: () => ipcRenderer.invoke('ai:get-settings'),
   setAiSettings: (settings: AiSettings) => ipcRenderer.invoke('ai:set-settings', settings),
+  aiTestProvider: (request: AiProviderProbeRequest) =>
+    ipcRenderer.invoke('ai:test-provider', request),
+  aiListModels: (request: AiProviderProbeRequest) => ipcRenderer.invoke('ai:list-models', request),
+  aiCliStatus: (provider: string) => ipcRenderer.invoke('ai:cli-status', provider),
   aiStream: (request: AiStreamRequest) => ipcRenderer.invoke('ai:stream', request),
   aiStreamCancel: (requestId: string) => ipcRenderer.invoke('ai:stream-cancel', requestId),
   aiGskStatus: (withEmail?: boolean) => ipcRenderer.invoke('ai:gsk-status', withEmail),

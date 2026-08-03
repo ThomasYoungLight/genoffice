@@ -4,7 +4,7 @@
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
-  "description": "Shared helpers for the Electron main processes (no Electron dependency, pure TS)",
+  "description": "Shared helpers for the Electron main processes (pure TS + Node; Electron APIs such as safeStorage are injected by the caller, never imported)",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -13,7 +13,11 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
+  "dependencies": {
+    "@genoffice/ai-provider": "*"
+  },
   "devDependencies": {
+    "@types/node": "^24.10.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.0"
   }

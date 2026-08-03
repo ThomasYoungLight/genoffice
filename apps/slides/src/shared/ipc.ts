@@ -10,10 +10,14 @@
 import type { RenderSlide } from '@genoffice/pptx-render'
 import type { SlideComment, SectionInfo } from '@genoffice/pptx-engine'
 import type {
+  AiProviderProbeRequest,
   AiSettings,
   AiStreamChunk,
   AiStreamRequest,
+  CliStatus,
   GenSparkAccountStatus,
+  ModelListResult,
+  ProviderProbeResult,
 } from '@genoffice/ai-provider'
 
 export type { SlideComment, SectionInfo } from '@genoffice/pptx-engine'
@@ -23,10 +27,14 @@ export type {
   AiProviderConfig,
   AiProviderId,
   AiProviderMeta,
+  AiProviderProbeRequest,
   AiSettings,
   AiStreamChunk,
   AiStreamRequest,
+  CliStatus,
   GenSparkAccountStatus,
+  ModelListResult,
+  ProviderProbeResult,
 } from '@genoffice/ai-provider'
 export { AI_PROVIDERS } from '@genoffice/ai-provider'
 export type { AgentToolCall, AgentToolDef } from '@genoffice/agent-core'
@@ -1283,6 +1291,12 @@ export interface SlidesApi {
   onRenamed: (handler: (newPath: string) => void) => () => void
   getAiSettings: () => Promise<AiSettings>
   setAiSettings: (settings: AiSettings) => Promise<void>
+  /** check that a key/model/endpoint combination actually works */
+  aiTestProvider: (request: AiProviderProbeRequest) => Promise<ProviderProbeResult>
+  /** ask the provider which models the configured key can reach */
+  aiListModels: (request: AiProviderProbeRequest) => Promise<ModelListResult>
+  /** whether a local agent CLI backend is installed on this machine */
+  aiCliStatus: (provider: string) => Promise<CliStatus>
   aiStream: (request: AiStreamRequest) => Promise<void>
   aiStreamCancel: (requestId: string) => Promise<void>
   /** Genspark account status (gsk login state); with withEmail also fetches the email (needs a network request, slower) */

@@ -1,5 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { AiComposer, AiTypingIndicator } from '@genoffice/ui'
+import {
+  AiComposer,
+  AiModelPicker,
+  AiSettingsButton,
+  AiTypingIndicator,
+  type AiSettingsHost,
+} from '@genoffice/ui'
+import type { AiSettings } from '@genoffice/ai-provider'
 import { GensparkMark } from '../ribbon-icons'
 import type { ChangePlan } from '../../domain/workbook.types'
 import type { AttachmentMeta } from '../../shared/desktop-api'
@@ -51,10 +58,19 @@ export interface AiChatMessage {
   readonly isError?: boolean | undefined
   /** the run failed and this user message was rolled back out of the model context (#92) */
   readonly undelivered?: boolean | undefined
-  /** the run failed because Genspark is signed out — render an inline sign-in button (#87) */
-  readonly loginRequired?: boolean | undefined
   /** Set when this message reflects an auto-applied plan; renders an inline [Undo] button. */
   readonly autoApplied?: { readonly opCount: number } | undefined
+}
+
+/** window.desktopApi, adapted to the shape the shared provider dialog expects */
+const AI_SETTINGS_HOST: AiSettingsHost = {
+  getAiSettings: () => window.desktopApi.getAiSettings(),
+  setAiSettings: (settings) => window.desktopApi.setAiSettings(settings),
+  gskStatus: () => window.desktopApi.aiGskStatus(true),
+  gskLogin: () => void window.desktopApi.aiGskLogin(),
+  aiTestProvider: (request) => window.desktopApi.aiTestProvider(request),
+  aiListModels: (request) => window.desktopApi.aiListModels(request),
+  aiCliStatus: (provider) => window.desktopApi.aiCliStatus(provider),
 }
 
 export function AiChatPanel({
@@ -78,6 +94,8 @@ export function AiChatPanel({
   onUndo,
   onExpand,
   onCollapse,
+  settings,
+  onSettingsChange,
 }: {
   readonly isOpen: boolean
   /** the workbook has cells with content — empty workbooks get "build me a sheet" copy instead */
@@ -105,8 +123,13 @@ export function AiChatPanel({
   readonly onUndo: () => void
   readonly onExpand: () => void
   readonly onCollapse: () => void
+  /// Current AI settings, so the composer can show and switch the backend.
+  /// Null until the first read of the settings file completes.
+  readonly settings: AiSettings | null
+  /// The user changed provider/model/key in the settings dialog.
+  readonly onSettingsChange: (settings: AiSettings) => void
 }): React.JSX.Element {
-  const { t } = useI18n()
+  const { lang, t } = useI18n()
   const chatRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const stickToBottomRef = useRef(true)
@@ -254,6 +277,13 @@ export function AiChatPanel({
           Genspark
         </span>
         <div className="ai-panel-header-actions">
+          <AiSettingsButton
+            className="ai-header-btn"
+            iconSize={15}
+            lang={lang}
+            host={AI_SETTINGS_HOST}
+            onSaved={onSettingsChange}
+          />
           {(chat.length > 0 || historicChat.length > 0) && (
             <button className="ai-header-btn" onClick={onNewChat} title={t('aiNewChat')}>
               <IconNewChat size={15} />
@@ -330,14 +360,6 @@ export function AiChatPanel({
                       {t('aiUndo')}
                     </button>
                   </div>
-                )}
-                {entry.loginRequired && (
-                  <button
-                    className="ai-login-btn"
-                    onClick={() => void window.desktopApi.aiGskLogin()}
-                  >
-                    {t('aiGskLoginBtn')}
-                  </button>
                 )}
               </>
             )}
@@ -427,13 +449,23 @@ export function AiChatPanel({
           sendIconDisabled={<img src={sendEnterOff} alt="" aria-hidden />}
           stopIcon={<img src={sendStop} alt="" aria-hidden />}
           footerStart={
-            <button
-              className="ai-attach-btn"
-              onClick={onPickAttachments}
-              title={t('aiAttachTitle')}
-            >
-              <img src={attachIcon} alt="" aria-hidden />
-            </button>
+            <>
+              <button
+                className="ai-attach-btn"
+                onClick={onPickAttachments}
+                title={t('aiAttachTitle')}
+              >
+                <img src={attachIcon} alt="" aria-hidden />
+              </button>
+              {settings && (
+                <AiModelPicker
+                  settings={settings}
+                  lang={lang}
+                  host={AI_SETTINGS_HOST}
+                  onChange={onSettingsChange}
+                />
+              )}
+            </>
           }
           textareaRef={inputRef}
           onChange={onPromptChange}

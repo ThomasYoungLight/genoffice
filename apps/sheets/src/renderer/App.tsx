@@ -50,6 +50,7 @@ import {
   runDeterministicPlan as runDeterministicPlanImpl,
   type PlanContext,
 } from './plan-operations'
+import { isAgentConfigured } from './agent-configured'
 import { isNumericIdentifierText } from './cell-warning'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 
@@ -853,37 +854,10 @@ export function App(): React.JSX.Element {
             }
             return next
           })
-          // Signed-out failures get an inline sign-in button (#87); detected via
-          // gsk status rather than matching the localized error text
-          void window.desktopApi
-            .aiGskStatus()
-            .then((status) => {
-              if (status.loggedIn) return
-              setChat((previous) => {
-                const next = [...previous]
-                const last = next.at(-1)
-                if (last?.role === 'assistant' && last.isError) {
-                  next[next.length - 1] = { ...last, loginRequired: true }
-                }
-                return next
-              })
-            })
-            .catch(() => {})
           void autoSaveCompletedAiRun().finally(() => setAiBusy(false))
         },
       },
     })
-  }
-
-  function isAgentConfigured(): boolean {
-    const settings = aiSettingsRef.current
-    if (!settings) return false
-    const config = settings.providers[settings.provider]
-    if (!config?.model) return false
-    // Genspark's key never lands in the settings file; the main process injects
-    // it from the gsk login state. When logged out, requests return an error
-    // guiding sign-in — not intercepted here.
-    return settings.provider === 'genspark' || !!config.apiKey
   }
 
   /** Image attachments read as base64 and sent multimodal with this user message
@@ -1929,7 +1903,7 @@ export function App(): React.JSX.Element {
     // real LLM configured → let the agent read context and propose operations;
     // otherwise fall back to the local, deterministic regex planner
     // (kept for offline use and for the fixed micro-DSL it still supports).
-    if (isAgentConfigured()) {
+    if (isAgentConfigured(aiSettingsRef.current)) {
       runAgent(instruction)
       return
     }
@@ -2935,6 +2909,8 @@ export function App(): React.JSX.Element {
         onSend={handleSend}
         onStop={handleStopAgent}
         onNewChat={handleNewChat}
+        aiSettings={aiSettings}
+        onAiSettingsChange={setAiSettingsState}
         onUndo={handleUndo}
         onCommand={handleRibbonCommand}
         zoomPercent={zoomPercent}

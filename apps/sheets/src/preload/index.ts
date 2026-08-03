@@ -218,6 +218,28 @@ const desktopApi: DesktopApi = {
   async setAiSettings(settings) {
     await ipcRenderer.invoke(IPC_CHANNELS.aiSetSettings, settings)
   },
+  async aiTestProvider(request) {
+    const result: unknown = await ipcRenderer.invoke(IPC_CHANNELS.aiTestProvider, request)
+    if (!isRecord(result) || typeof result.ok !== 'boolean') {
+      throw new Error('Invalid AI provider test response.')
+    }
+    return result as { ok: boolean; error?: string }
+  },
+  async aiCliStatus(provider) {
+    const result: unknown = await ipcRenderer.invoke(IPC_CHANNELS.aiCliStatus, provider)
+    return (isRecord(result) ? result : { installed: false }) as {
+      installed: boolean
+      path?: string
+      version?: string
+    }
+  },
+  async aiListModels(request) {
+    const result: unknown = await ipcRenderer.invoke(IPC_CHANNELS.aiListModels, request)
+    if (!isRecord(result) || typeof result.ok !== 'boolean') {
+      throw new Error('Invalid AI model list response.')
+    }
+    return result as { ok: boolean; models?: string[]; error?: string }
+  },
   async aiChat(request) {
     const result: unknown = await ipcRenderer.invoke(IPC_CHANNELS.aiChat, request)
     if (!isRecord(result) || typeof result.ok !== 'boolean') {

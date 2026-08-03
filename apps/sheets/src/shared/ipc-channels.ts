@@ -26,6 +26,9 @@ export const IPC_CHANNELS = {
   aiStreamChunk: 'ai:stream-chunk',
   aiGskStatus: 'ai:gsk-status',
   aiGskLogin: 'ai:gsk-login',
+  aiTestProvider: 'ai:test-provider',
+  aiListModels: 'ai:list-models',
+  aiCliStatus: 'ai:cli-status',
   // Chat attachments (sheets: prefix — docs already registers global files:* in
   // the shell; avoids collisions)
   filesPick: 'sheets:files-pick',

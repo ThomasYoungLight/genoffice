@@ -19,10 +19,14 @@ export interface PickImageResult {
 import type {
   AiChatRequest,
   AiChatResponse,
+  AiProviderProbeRequest,
   AiSettings,
   AiStreamChunk,
   AiStreamRequest,
+  CliStatus,
   GenSparkAccountStatus,
+  ModelListResult,
+  ProviderProbeResult,
 } from '@genoffice/ai-provider'
 
 export type {
@@ -31,10 +35,14 @@ export type {
   AiProviderConfig,
   AiProviderId,
   AiProviderMeta,
+  AiProviderProbeRequest,
   AiSettings,
   AiStreamChunk,
   AiStreamRequest,
+  CliStatus,
   GenSparkAccountStatus,
+  ModelListResult,
+  ProviderProbeResult,
 } from '@genoffice/ai-provider'
 export { AI_PROVIDERS } from '@genoffice/ai-provider'
 
@@ -166,6 +174,12 @@ export interface DesktopApi {
   pickImage(): Promise<PickImageResult | null>
   getAiSettings(): Promise<AiSettings>
   setAiSettings(settings: AiSettings): Promise<void>
+  /** check that a key/model/endpoint combination actually works */
+  aiTestProvider(request: AiProviderProbeRequest): Promise<ProviderProbeResult>
+  /** ask the provider which models the configured key can reach */
+  aiListModels(request: AiProviderProbeRequest): Promise<ModelListResult>
+  /** whether a local agent CLI backend is installed on this machine */
+  aiCliStatus(provider: string): Promise<CliStatus>
   /** system print dialog for the current window */
   print(): Promise<void>
   /** render the document to PDF and ask where to save; size in twips */
@@ -217,6 +231,12 @@ export interface DesktopApi {
     method: string
   }>
   fetchImage(url: string): Promise<{ base64: string; mime: string } | null>
+  /** generate an image with the configured provider's own key (main process holds it) */
+  generateImage(request: {
+    prompt: string
+    size?: string | undefined
+    transparent?: boolean | undefined
+  }): Promise<{ ok: boolean; base64?: string; mime?: string; model?: string; error?: string }>
   /** file picker for chat attachments (multi-select) */
   pickAttachments(): Promise<AttachmentAddResult | null>
   /** validate dropped paths and return attachment metadata */

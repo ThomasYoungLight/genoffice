@@ -218,8 +218,9 @@ interface DocStats {
   lines: number
 }
 
+/** placeholder until `getAiSettings` lands; matches the store's own default */
 const DEFAULT_SETTINGS: AiSettings = {
-  provider: 'anthropic',
+  provider: 'genspark',
   providers: Object.fromEntries(
     AI_PROVIDERS.map((p) => [
       p.id,
@@ -2486,6 +2487,7 @@ export function App() {
                 editor={editor}
                 blocks={doc.parsed.blocks}
                 settings={settings}
+                onSettingsChange={setSettings}
                 docEmpty={wordCount === 0}
                 numIdFallback={
                   doc.isBlank

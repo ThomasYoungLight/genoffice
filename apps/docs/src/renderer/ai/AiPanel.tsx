@@ -13,7 +13,13 @@ import { createFilesSkill } from './files-skill'
 import { createElectronTransport } from './transport'
 import { useI18n, t as tModule, aiLangDirective, type StringKey } from '../i18n/locale'
 import { Markdown } from '@genoffice/ui'
-import { AiComposer, AiTypingIndicator } from '@genoffice/ui'
+import {
+  AiComposer,
+  AiModelPicker,
+  AiSettingsButton,
+  AiTypingIndicator,
+  type AiSettingsHost,
+} from '@genoffice/ui'
 import { GensparkMark } from '../components/icons'
 import sendEnterOn from '../assets/send-enter-on.png'
 import sendEnterOff from '../assets/send-enter-off.png'
@@ -67,8 +73,6 @@ interface ChatEntry {
   turnLimit?: boolean
   /** the run failed and this user message was rolled back out of the model context (#92) */
   undelivered?: boolean
-  /** the run failed because Genspark is signed out — render an inline sign-in button (#87) */
-  loginRequired?: boolean
   /** tool executions performed during this assistant turn */
   tools?: ToolActivity[]
 }
@@ -118,10 +122,23 @@ const PASTE_MIME_EXT: Record<string, string> = {
 /** author name on AI-generated tracked revisions (accept/reject via Review) */
 export const AI_REVISION_AUTHOR = 'AI Assistant'
 
+/** window.desktop, adapted to the shape the shared provider dialog expects */
+const AI_SETTINGS_HOST: AiSettingsHost = {
+  getAiSettings: () => window.desktop.getAiSettings(),
+  setAiSettings: (settings) => window.desktop.setAiSettings(settings),
+  gskStatus: () => window.desktop.aiGskStatus(true),
+  gskLogin: () => void window.desktop.aiGskLogin(),
+  aiTestProvider: (request) => window.desktop.aiTestProvider(request),
+  aiListModels: (request) => window.desktop.aiListModels(request),
+  aiCliStatus: (provider) => window.desktop.aiCliStatus(provider),
+}
+
 interface AiPanelProps {
   editor: Editor
   blocks: Block[]
   settings: AiSettings
+  /** the user changed provider/model/key in the settings dialog */
+  onSettingsChange: (settings: AiSettings) => void
   /** the document has no text yet — the empty-state copy offers drafting instead of editing */
   docEmpty?: boolean
   /** fallback numbering ids for documents created from the blank template */
@@ -138,13 +155,14 @@ export function AiPanel({
   editor,
   blocks,
   settings,
+  onSettingsChange,
   docEmpty,
   numIdFallback,
   preset,
   onCollapse,
   filePath,
 }: AiPanelProps) {
-  const { t } = useI18n()
+  const { lang, t } = useI18n()
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   /** Wall-clock start of the current run, drives the elapsed badge */
@@ -446,22 +464,6 @@ export function AiPanel({
             }
             return next
           })
-          // Signed-out failures get an inline sign-in button (#87); detected via
-          // gsk status rather than matching the localized error text
-          void window.desktop
-            .aiGskStatus()
-            .then((status) => {
-              if (status.loggedIn) return
-              setChat((prev) => {
-                const next = [...prev]
-                const last = next.at(-1)
-                if (last?.role === 'assistant' && last.error) {
-                  next[next.length - 1] = { ...last, loginRequired: true }
-                }
-                return next
-              })
-            })
-            .catch(() => {})
           setBusy(false)
         },
       },
@@ -682,6 +684,12 @@ export function AiPanel({
           {t('aiPanelTitle')}
         </span>
         <div className="ai-panel-header-actions">
+          <AiSettingsButton
+            className="ai-header-btn"
+            lang={lang}
+            host={AI_SETTINGS_HOST}
+            onSaved={onSettingsChange}
+          />
           {chat.length > 0 && (
             <button className="ai-header-btn" onClick={newChat} title={t('aiNewChatTitle')}>
               <IconNewChat size={16} />
@@ -776,11 +784,6 @@ export function AiPanel({
               {entry.tools && entry.tools.length > 0 && <ToolChipList tools={entry.tools} />}
               {entry.error && (
                 <div className="ai-msg-error">{t('aiErrorPrefix', { error: entry.error })}</div>
-              )}
-              {entry.loginRequired && (
-                <button className="ai-login-btn" onClick={() => void window.desktop.aiGskLogin()}>
-                  {t('aiGskLoginBtn')}
-                </button>
               )}
               {showToolbar && (
                 <div className="ai-msg-toolbar">
@@ -902,6 +905,12 @@ export function AiPanel({
               >
                 <img src={attachIcon} alt="" aria-hidden />
               </button>
+              <AiModelPicker
+                settings={settings}
+                lang={lang}
+                host={AI_SETTINGS_HOST}
+                onChange={onSettingsChange}
+              />
               <button
                 className={`ai-track-btn${trackChanges ? ' on' : ''}`}
                 onClick={toggleTrackChanges}

@@ -1,3 +1,11 @@
+import type {
+  AiProviderProbeRequest,
+  AiSettings,
+  CliStatus,
+  ModelListResult,
+  ProviderProbeResult,
+} from '@genoffice/ai-provider'
+
 /** UI language; kept self-contained here (mirrors Lang in @genoffice/i18n) */
 export type UiLanguage =
   | 'zh'
@@ -87,6 +95,19 @@ export interface HomeApi {
   getLanguage(): Promise<UiLanguage>
   /** switch + persist the UI language; main rebuilds its menus to match */
   setLanguage(lang: UiLanguage): Promise<void>
+  /**
+   * Shared AI provider settings (userData/ai-settings.json, the same file the
+   * editors use). API keys are already blanked out — see createAiSettingsStore.
+   */
+  getAiSettings(): Promise<AiSettings>
+  /** persist the provider/model/key picked in the AI settings dialog */
+  setAiSettings(settings: AiSettings): Promise<void>
+  /** check that a key/model/endpoint combination actually works */
+  aiTestProvider(request: AiProviderProbeRequest): Promise<ProviderProbeResult>
+  /** ask the provider which models the configured key can reach */
+  aiListModels(request: AiProviderProbeRequest): Promise<ModelListResult>
+  /** whether a local agent CLI backend is installed on this machine */
+  aiCliStatus(provider: string): Promise<CliStatus>
   /** Genspark account status (gsk login state; to be upgraded to a signup/account system later) */
   accountStatus(): Promise<AccountStatus>
   /** start Genspark login (opens the browser; accountStatus flips to logged-in on completion); returns whether the launch succeeded */
@@ -173,6 +194,12 @@ export const HOME_CHANNELS = {
   openTrash: 'home:open-trash',
   getLanguage: 'home:get-language',
   setLanguage: 'home:set-language',
+  // registered by registerAiIpc (shared with every editor window), not by the home module
+  getAiSettings: 'ai:get-settings',
+  setAiSettings: 'ai:set-settings',
+  aiTestProvider: 'ai:test-provider',
+  aiListModels: 'ai:list-models',
+  aiCliStatus: 'ai:cli-status',
   accountStatus: 'home:account-status',
   accountLogin: 'home:account-login',
   accountLogout: 'home:account-logout',

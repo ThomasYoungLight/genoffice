@@ -4,8 +4,9 @@ import iconDocx from './assets/file-docx.svg'
 import iconXlsx from './assets/file-xlsx.svg'
 import iconPptx from './assets/file-pptx.svg'
 import iconPdf from './assets/file-pdf.svg'
+import type { AiSettings } from '@genoffice/ai-provider'
+import { AiSettingsDialog, tAiSettings } from '@genoffice/ui'
 import type {
-  AccountStatus,
   HomeApi,
   ProjectHomeApi,
   ProjectSummaryEntry,
@@ -385,12 +386,8 @@ function ProjectPanel({ projects, selectedId, onSelect, onRefresh }: ProjectPane
   )
 }
 
-// ── Account entry (bottom-left) ──────────────────────────
-// Currently the Genspark (gsk) login entry; to be upgraded to a signup/account system later.
-// Language switching also lives in this popup menu.
-
-const LOGIN_POLL_MS = 2500
-const LOGIN_TIMEOUT_MS = 120_000
+// ── Settings entry (bottom-left) ─────────────────────────
+// UI language, the AI provider dialog, and the app version.
 
 // sorted by ISO 639 language code — native-script labels have no natural
 // shared alphabet, so the code is the ordering key
@@ -416,13 +413,20 @@ const LANG_OPTIONS = [
   { value: 'zh-TW', label: '繁體中文' },
 ] as const
 
-function AccountEntry() {
+/**
+ * Bottom-left settings entry: UI language, the AI provider dialog, and the app
+ * version.
+ *
+ * This used to be a Genspark account entry. The suite no longer requires that
+ * account for anything — an AI backend is configured in the provider dialog,
+ * which may equally be a bring-your-own key or a local agent CLI — so the home
+ * screen does not ask anyone to sign in to it.
+ */
+function SettingsEntry() {
   const { lang, setLang, t } = useI18n()
-  const [status, setStatus] = useState<AccountStatus | null>(null)
-  const [waiting, setWaiting] = useState(false)
-  // incremented on login retry, resetting the polling timer
-  const [loginNonce, setLoginNonce] = useState(0)
-  const [loginError, setLoginError] = useState<'timeout' | 'launch' | null>(null)
+  // provider/model/API key dialog; shared with every editor's AI panel and
+  // backed by the same userData/ai-settings.json
+  const [aiSettings, setAiSettings] = useState<AiSettings | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   // language flyout: opens on hover, fixed-position so it can escape the
   // sidebar's scroll container (same trick as the project row menu)
@@ -431,15 +435,10 @@ function AccountEntry() {
   // grace period before the hover flyout closes: the pointer's diagonal path
   // from the row to the options crosses ground outside both elements
   const langCloseTimer = useRef<number | null>(null)
-  const [loggingOut, setLoggingOut] = useState(false)
   const [appVersion, setAppVersion] = useState('')
 
-  // query login state + app version once on mount
   useEffect(() => {
     let alive = true
-    void window.aiOffice.accountStatus?.().then((s) => {
-      if (alive) setStatus(s)
-    })
     void window.aiOffice.getAppVersion?.().then((v) => {
       if (alive && v) setAppVersion(v)
     })
@@ -447,24 +446,6 @@ function AccountEntry() {
       alive = false
     }
   }, [])
-
-  // poll while the browser login is pending (takes effect once the login state lands in the local config file)
-  useEffect(() => {
-    if (!waiting) return
-    const startedAt = Date.now()
-    const timer = setInterval(() => {
-      void window.aiOffice.accountStatus().then((s) => {
-        if (s.loggedIn) {
-          setStatus(s)
-          setWaiting(false)
-        } else if (Date.now() - startedAt > LOGIN_TIMEOUT_MS) {
-          setWaiting(false)
-          setLoginError('timeout')
-        }
-      })
-    }, LOGIN_POLL_MS)
-    return () => clearInterval(timer)
-  }, [waiting, loginNonce])
 
   // close the menu on outside click
   useEffect(() => {
@@ -479,16 +460,6 @@ function AccountEntry() {
     window.addEventListener('pointerdown', handler)
     return () => window.removeEventListener('pointerdown', handler)
   }, [menuOpen])
-
-  const loggedIn = status?.loggedIn ?? false
-  const email = status?.email ?? ''
-  const initial = email ? email[0].toUpperCase() : loggedIn ? 'G' : '?'
-  const errorText =
-    loginError === 'timeout'
-      ? t('loginTimeout')
-      : loginError === 'launch'
-        ? t('loginLaunchFailed')
-        : null
 
   const closeMenu = () => {
     setMenuOpen(false)
@@ -531,46 +502,29 @@ function AccountEntry() {
     }
   }, [langFly])
 
-  const startLogin = () => {
-    // clicking again while waiting = relaunch the browser login and reset the timer (rescue for a mistakenly closed login page)
-    setLoginError(null)
-    setWaiting(true)
-    setLoginNonce((n) => n + 1)
-    closeMenu()
-    void window.aiOffice.accountLogin().then((launched) => {
-      if (!launched) {
-        setWaiting(false)
-        setLoginError('launch')
-      }
-    })
-  }
-
-  const handleClick = () => {
-    setMenuOpen((v) => !v)
-    setLangFly(null)
-  }
-
   return (
     <div className="account-entry">
       {menuOpen && (
         <div className="account-menu" role="menu">
-          {loggedIn ? (
-            <div className="account-menu-info">
-              <span className="account-menu-email" title={email}>
-                {email || t('loggedIn')}
-              </span>
-            </div>
-          ) : (
-            <button
-              className="account-menu-item"
-              role="menuitem"
-              onClick={startLogin}
-              title={waiting ? t('waitingLogin') : undefined}
-            >
-              {waiting ? t('waitingShort') : t('loginGenspark')}
-            </button>
-          )}
-          <div className="account-menu-divider" />
+          <button
+            className="account-menu-item"
+            role="menuitem"
+            onClick={() => {
+              closeMenu()
+              void window.aiOffice.getAiSettings().then(setAiSettings)
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.2" />
+              <path
+                d="M8 1.8v1.5M8 12.7v1.5M14.2 8h-1.5M3.3 8H1.8M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1M12.4 12.4l-1.1-1.1M4.7 4.7 3.6 3.6"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
+            </svg>
+            <span>{tAiSettings(lang, 'title')}</span>
+          </button>
           <div
             className="lang-row-wrap"
             ref={langRowRef}
@@ -660,98 +614,48 @@ function AccountEntry() {
               <span className="version-row-value">{appVersion}</span>
             </div>
           )}
-          {loggedIn && (
-            <button
-              className="account-menu-item danger"
-              role="menuitem"
-              disabled={loggingOut}
-              onClick={() => {
-                setLoggingOut(true)
-                void window.aiOffice.accountLogout().then(() => {
-                  setLoggingOut(false)
-                  closeMenu()
-                  setStatus({ loggedIn: false })
-                })
-              }}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path
-                  d="M6.2 2H3.7A1.7 1.7 0 0 0 2 3.7v8.6A1.7 1.7 0 0 0 3.7 14h2.5"
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                />
-                <path
-                  d="M10.7 4.9 13.8 8l-3.1 3.1M13.4 8H6.4"
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span>{loggingOut ? t('loggingOut') : t('logout')}</span>
-            </button>
-          )}
         </div>
       )}
       <button
         className="account-btn"
-        onClick={handleClick}
+        onClick={() => {
+          setMenuOpen((v) => !v)
+          setLangFly(null)
+        }}
         aria-expanded={menuOpen}
-        title={
-          loggedIn
-            ? email || t('loggedInGenspark')
-            : waiting
-              ? t('waitingLogin')
-              : (errorText ?? t('loginGenspark'))
-        }
-        aria-label={loggedIn ? t('account') : t('login')}
+        title={t('settings')}
+        aria-label={t('settings')}
       >
-        <span
-          className={`account-avatar${loggedIn ? ' logged-in' : ''}${waiting ? ' waiting' : ''}`}
-        >
-          {waiting ? (
-            <svg
-              className="account-spinner"
-              width="14"
-              height="14"
-              viewBox="0 0 16 16"
-              aria-hidden="true"
-            >
-              <circle
-                cx="8"
-                cy="8"
-                r="6"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                fill="none"
-                strokeDasharray="26"
-                strokeDashoffset="18"
-                strokeLinecap="round"
-              />
-            </svg>
-          ) : (
-            initial
-          )}
+        <span className="account-avatar settings-avatar">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.3" />
+            <path
+              d="M8 1.8v1.5M8 12.7v1.5M14.2 8h-1.5M3.3 8H1.8M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1M12.4 12.4l-1.1-1.1M4.7 4.7 3.6 3.6"
+              stroke="currentColor"
+              strokeWidth="1.3"
+              strokeLinecap="round"
+            />
+          </svg>
         </span>
         <span className="account-text">
-          {loggedIn ? (
-            <>
-              <span className="account-name">{email ? email.split('@')[0] : t('loggedIn')}</span>
-              <span className="account-sub" title={email}>
-                {email || 'Genspark'}
-              </span>
-            </>
-          ) : (
-            <>
-              <span className="account-name">{waiting ? t('waitingShort') : t('login')}</span>
-              <span className={`account-sub${!waiting && errorText ? ' error' : ''}`}>
-                {!waiting && errorText ? errorText : t('accountGenspark')}
-              </span>
-            </>
-          )}
+          <span className="account-name">{t('settings')}</span>
+          <span className="account-sub">{t('languageAndModel')}</span>
         </span>
       </button>
+      {aiSettings && (
+        <AiSettingsDialog
+          settings={aiSettings}
+          lang={lang}
+          onSave={(next) => {
+            setAiSettings(null)
+            void window.aiOffice.setAiSettings(next)
+          }}
+          onClose={() => setAiSettings(null)}
+          onTest={(request) => window.aiOffice.aiTestProvider(request)}
+          onListModels={(request) => window.aiOffice.aiListModels(request)}
+          onCliStatus={(provider) => window.aiOffice.aiCliStatus(provider)}
+        />
+      )}
     </div>
   )
 }
@@ -774,18 +678,9 @@ export function Home() {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [renaming, setRenaming] = useState<{ path: string; value: string } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string[] | null>(null)
-  // name in the greeting; omitted when logged out
-  const [accountName, setAccountName] = useState('')
   const [greetAskKey] = useState(
     () => GREET_ASK_KEYS[Math.floor(Math.random() * GREET_ASK_KEYS.length)]!,
   )
-
-  useEffect(() => {
-    void window.aiOffice.accountStatus?.().then((s) => {
-      const name = s?.loggedIn ? (s.email ?? '').split('@')[0] : ''
-      if (name) setAccountName(name[0].toUpperCase() + name.slice(1))
-    })
-  }, [])
 
   // ── Project state ──
   const [projects, setProjects] = useState<ProjectSummaryEntry[]>([])
@@ -1509,7 +1404,9 @@ export function Home() {
             ? 'greetAfternoon'
             : 'greetEvening'
     const cjk = lang === 'zh' || lang === 'zh-TW' || lang === 'ja'
-    const greeting = `${t(greetKey)}${accountName ? (cjk ? '，' : ', ') + accountName : ''}${cjk ? '。' : '. '}`
+    // no name: the greeting used to carry the Genspark account's, and the
+    // suite no longer has an account concept
+    const greeting = `${t(greetKey)}${cjk ? '。' : '. '}`
     return (
       <main className="content">
         <section className="quick-start" aria-label={t('secQuickStart')}>
@@ -1673,7 +1570,7 @@ export function Home() {
           </>
         )}
 
-        <AccountEntry />
+        <SettingsEntry />
       </aside>
 
       {selectedProjectId ? renderProjectContent() : renderGlobalContent()}

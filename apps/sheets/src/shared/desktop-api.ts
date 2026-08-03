@@ -3,10 +3,14 @@ import { z } from 'zod'
 import type {
   AiChatRequest,
   AiChatResponse,
+  AiProviderProbeRequest,
   AiSettings,
   AiStreamChunk,
   AiStreamRequest,
+  CliStatus,
   GenSparkAccountStatus,
+  ModelListResult,
+  ProviderProbeResult,
 } from '@genoffice/ai-provider'
 
 const MAX_RANGE_CELLS = 20_000
@@ -1685,6 +1689,18 @@ const aiProviderConfigSchema = z
     apiKey: z.string(),
     model: z.string(),
     baseUrl: z.string().optional(),
+    /// "a key is stored for this provider"; on the way in, false means "delete it"
+    hasApiKey: z.boolean().optional(),
+  })
+  .strict()
+
+/// A named provider+model pairing; the main process re-validates the list
+/// (sanitizePresets) before it reaches disk.
+const aiModelPresetSchema = z
+  .object({
+    name: z.string().min(1).max(40),
+    provider: z.string().min(1),
+    model: z.string(),
   })
   .strict()
 
@@ -1692,6 +1708,7 @@ export const aiSettingsInputSchema = z
   .object({
     provider: z.string().min(1),
     providers: z.record(z.string(), aiProviderConfigSchema),
+    presets: z.array(aiModelPresetSchema).max(50).optional(),
   })
   .strict()
 
@@ -1749,6 +1766,17 @@ const agentToolDefSchema = z
 const MAX_AI_MESSAGES = 500
 const MAX_AI_TOOLS = 50
 
+/// Settings-dialog probe: `apiKey` is present only for a key typed but not yet
+/// saved; without it the main process uses the stored key and stored endpoint.
+export const aiProviderProbeRequestSchema = z
+  .object({
+    provider: z.string().min(1),
+    model: z.string(),
+    baseUrl: z.string().optional(),
+    apiKey: z.string().optional(),
+  })
+  .strict()
+
 export const aiChatRequestSchema = z
   .object({
     settings: aiSettingsInputSchema,
@@ -1769,6 +1797,7 @@ export const aiStreamRequestSchema = z
   .strict()
 
 export type AiSettingsInput = z.infer<typeof aiSettingsInputSchema>
+export type AiProviderProbeRequestInput = z.infer<typeof aiProviderProbeRequestSchema>
 export type AiChatRequestInput = z.infer<typeof aiChatRequestSchema>
 export type AiStreamRequestInput = z.infer<typeof aiStreamRequestSchema>
 
@@ -1896,6 +1925,12 @@ export interface DesktopApi {
   consumeNewBlankWorkbook(): Promise<boolean>
   getAiSettings(): Promise<AiSettings>
   setAiSettings(settings: AiSettings): Promise<void>
+  /// Check that a key/model/endpoint combination actually works.
+  aiTestProvider(request: AiProviderProbeRequest): Promise<ProviderProbeResult>
+  /// Ask the provider which models the configured key can reach.
+  aiListModels(request: AiProviderProbeRequest): Promise<ModelListResult>
+  /// Whether a local agent CLI backend is installed on this machine.
+  aiCliStatus(provider: string): Promise<CliStatus>
   aiChat(request: AiChatRequest): Promise<AiChatResponse>
   /// start a streaming AI call; deltas arrive via onAiStream with the same requestId
   aiStream(request: AiStreamRequest): Promise<void>

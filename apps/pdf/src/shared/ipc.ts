@@ -1,5 +1,14 @@
 import type { Lang } from '@genoffice/i18n'
-import type { AiSettings, AiStreamChunk, AiStreamRequest } from '@genoffice/ai-provider'
+import type {
+  AiProviderProbeRequest,
+  AiSettings,
+  AiStreamChunk,
+  AiStreamRequest,
+  CliStatus,
+  GenSparkAccountStatus,
+  ModelListResult,
+  ProviderProbeResult,
+} from '@genoffice/ai-provider'
 
 export const PDF_CHANNELS = {
   consumePending: 'pdf:consume-pending',
@@ -137,6 +146,12 @@ export type ExportImagesResult =
 /** AI channels are app-wide shared ipcMain handlers (shell registers via docs-main registerAiIpc); pass-through only */
 export const AI_CHANNELS = {
   getSettings: 'ai:get-settings',
+  setSettings: 'ai:set-settings',
+  testProvider: 'ai:test-provider',
+  listModels: 'ai:list-models',
+  cliStatus: 'ai:cli-status',
+  gskStatus: 'ai:gsk-status',
+  gskLogin: 'ai:gsk-login',
   stream: 'ai:stream',
   streamChunk: 'ai:stream-chunk',
   streamCancel: 'ai:stream-cancel',
@@ -161,6 +176,18 @@ export interface PdfApi {
   getLanguage(): Promise<Lang>
   onLanguageChanged(handler: (lang: Lang) => void): () => void
   getAiSettings(): Promise<AiSettings>
+  /** persist the provider/model/key picked in the AI settings dialog */
+  setAiSettings(settings: AiSettings): Promise<void>
+  /** check that a key/model/endpoint combination actually works */
+  aiTestProvider(request: AiProviderProbeRequest): Promise<ProviderProbeResult>
+  /** ask the provider which models the configured key can reach */
+  aiListModels(request: AiProviderProbeRequest): Promise<ModelListResult>
+  /** whether a local agent CLI backend is installed on this machine */
+  aiCliStatus(provider: string): Promise<CliStatus>
+  /** Genspark account status (gsk login state); withEmail also fetches the email */
+  aiGskStatus(withEmail?: boolean): Promise<GenSparkAccountStatus>
+  /** open the browser to sign in to Genspark (fire-and-forget) */
+  aiGskLogin(): Promise<void>
   aiStream(request: AiStreamRequest): Promise<void>
   aiStreamCancel(requestId: string): Promise<void>
   onAiStream(handler: (chunk: AiStreamChunk) => void): () => void

@@ -1394,14 +1394,42 @@ export function formatSlideDump(slide: RenderSlide): string {
   return `Canvas ${slide.widthPx}×${slide.heightPx}px\n${parts.join('\n---\n') || '(no elements on this page)'}${colorNote}`
 }
 
-export function createSlidesSkill(access: DeckAccess): AgentSkill {
+/**
+ * Tools that only the Genspark service can perform (its image generation and
+ * media understanding). They are omitted unless that account is actually
+ * available, so the model is never offered a capability whose only failure
+ * mode is "sign in to Genspark" — every other backend simply works without it.
+ */
+const GENSPARK_ONLY_TOOLS = new Set(['analyze_media'])
+
+export function createSlidesSkill(
+  access: DeckAccess,
+  /**
+   * Read per turn, not captured: the panel builds this skill on mount, before
+   * the availability check can have answered.
+   */
+  gensparkAvailable: () => boolean = () => false,
+  /**
+   * Image generation has a second source now — the user's own provider key —
+   * so the tool is offered whenever either can serve it. `analyze_media` has
+   * no such equivalent and stays Genspark-only.
+   */
+  imagesAvailable: () => boolean = () => false,
+): AgentSkill {
   // The HTML pipeline was already used in this conversation → later calls without an explicit mode default to append.
   // Safety net for when the AI ignores the "pass all pages at once" constraint: separate calls no longer overwrite each other (P0-1).
   const state: SkillState = { htmlGenerated: false }
   return {
     id: 'slides',
     systemPrompt: AGENT_SYSTEM_PROMPT,
-    tools: TOOLS,
+    get tools() {
+      if (gensparkAvailable()) return TOOLS
+      const canGenerateImages = imagesAvailable()
+      return TOOLS.filter(
+        (t) =>
+          !GENSPARK_ONLY_TOOLS.has(t.name) && (canGenerateImages || t.name !== 'generate_image'),
+      )
+    },
     buildContext: () => {
       const outline = `<deck outline>\n${buildDeckOutline(access.getSlides(), access.getCurrent(), access.getSelectedIds())}\n</deck outline>`
       const progress = buildProgressNote(state)

@@ -22,14 +22,15 @@
     "gate": "npm run typecheck && npm run fixtures && npm test && npm run compat"
   },
   "dependencies": {
+    "@fluentui/react-icons": "^2.0.333",
     "@genoffice/agent-core": "*",
+    "@genoffice/ai-cli": "*",
     "@genoffice/ai-provider": "*",
     "@genoffice/ai-search": "*",
     "@genoffice/electron-utils": "*",
     "@genoffice/file-parse": "*",
     "@genoffice/i18n": "*",
     "@genoffice/ui": "*",
-    "@fluentui/react-icons": "^2.0.333",
     "@univerjs/core": "^0.25.1",
     "@univerjs/preset-sheets-conditional-formatting": "^0.25.1",
     "@univerjs/preset-sheets-core": "^0.25.1",

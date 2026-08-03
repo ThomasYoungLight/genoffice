@@ -2288,6 +2288,7 @@ export function App() {
                   applyDeck={applyDeck}
                   fitWidthPx={FIT_WIDTH}
                   settings={aiSettings}
+                  onSettingsChange={setAiSettings}
                   preset={aiPreset}
                   onCollapse={toggleAi}
                   onUndo={() => void undo()}
