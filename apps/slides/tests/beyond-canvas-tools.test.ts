@@ -351,3 +351,62 @@ describe('manage_comments', () => {
     expect((window as any).slidesApi.deleteComment).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * insert_diagram: Mermaid → native shapes and arrows. SmartArt offers seven
+ * fixed layouts and an arbitrary graph is not one of them, so this is the only
+ * way the agent can draw a process or a decision tree.
+ */
+describe('insert_diagram', () => {
+  beforeEach(() => {
+    let n = 0
+    Object.assign((window as any).slidesApi, {
+      addElement: vi.fn(async () => ({ slide: DECK[0], sourceId: `el_${++n}` })),
+      flipElements: vi.fn(async () => DECK[0]),
+    })
+  })
+
+  it('draws a node per box and an arrow per edge', async () => {
+    const r = await run('insert_diagram', {
+      slideIndex: 0,
+      mermaid: 'flowchart TD; A[Submit] --> B{Approved?}; B --> C[Ship]',
+    })
+    expect(r.isError).toBeUndefined()
+    expect(r.mutated).toBe(true)
+    const calls = (window as any).slidesApi.addElement.mock.calls.map((c: any[]) => c[0].kind)
+    expect(calls.filter((k: string) => k !== 'lineArrow')).toEqual(['rect', 'diamond', 'rect'])
+    expect(calls.filter((k: string) => k === 'lineArrow')).toHaveLength(2)
+  })
+
+  it('flips an arrow that runs backwards inside its own box', async () => {
+    // two children: the left one is reached by a right-to-left arrow
+    await run('insert_diagram', { slideIndex: 0, mermaid: 'flowchart TD; A --> B; A --> C' })
+    const flips = (window as any).slidesApi.flipElements.mock.calls
+    expect(flips.length).toBe(1)
+    expect(flips[0][0].axis).toBe('h')
+  })
+
+  it('refuses a diagram type it would otherwise draw wrong', async () => {
+    const r = await run('insert_diagram', {
+      slideIndex: 0,
+      mermaid: 'sequenceDiagram\n A->>B: hello',
+    })
+    expect(r.isError).toBe(true)
+    expect(r.output).toContain('sequenceDiagram')
+    expect((window as any).slidesApi.addElement).not.toHaveBeenCalled()
+  })
+
+  it('says which arrow labels it could not draw rather than dropping them silently', async () => {
+    const r = await run('insert_diagram', {
+      slideIndex: 0,
+      mermaid: 'flowchart TD; A -->|yes| B',
+    })
+    expect(r.output).toContain('1 arrow label')
+  })
+
+  it('refuses a page that does not exist', async () => {
+    const r = await run('insert_diagram', { slideIndex: 9, mermaid: 'flowchart TD; A --> B' })
+    expect(r.isError).toBe(true)
+    expect((window as any).slidesApi.addElement).not.toHaveBeenCalled()
+  })
+})

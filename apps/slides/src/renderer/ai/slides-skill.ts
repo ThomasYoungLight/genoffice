@@ -20,6 +20,7 @@ import type {
   TransitionKind,
 } from '../../shared/ipc'
 import { generateDeckLocally, type LocalDeckDeps } from './deck-local'
+import { layoutFlow, parseMermaidFlow, presetFor } from './mermaid-flow'
 import { auditSlideLayout, formatAudit } from './layout-audit'
 import { runLayoutScript, type LayoutScriptElement, type SlideStylePatch } from './layout-script'
 import { t } from '../i18n/locale'
@@ -323,7 +324,8 @@ Step E Vary layouts per page (avoid sameness): 3 parallel points→three-column 
 
 Native tools (only for modifying/refining existing pages, not for generating from scratch):
 - add_slide clones a layout into a new page (layout-preserving blank page); add_text_box lays out text; add_shape makes color blocks/accent bars (kind supports any OOXML preset geometry rect/roundRect/ellipse/star5…).
-- For data display use add_chart (native bar/line/pie charts); for structured comparisons use add_table (cells can pre-fill text; later edit_table_cell edits cells, edit_table_structure adds/removes rows/columns); for flows/cycles/hierarchies/lists use add_smartart.
+- For data display use add_chart (eleven native chart types; pick by the question the page asks); for structured comparisons use add_table (cells can pre-fill text; later edit_table_cell edits cells, edit_table_structure adds/removes rows/columns); for flows/cycles/hierarchies/lists use add_smartart.
+- For a process, decision tree or dependency graph that SmartArt's fixed layouts cannot express, use insert_diagram with Mermaid source ("flowchart TD; A[Submit] --> B{Approved?}"). It lands as ordinary shapes and arrows, so any part can be moved or restyled afterwards.
 - set_slide_background sets a solid background (slideIndex=-1 for all pages); on dark backgrounds remember to lighten the text.
 - Refine page by page, element by element; 2–4 elements per page is enough — fewer beats crowded.
 
@@ -1284,6 +1286,26 @@ const TOOLS: AgentToolDef[] = [
         },
       },
       required: ['slideIndex', 'items'],
+    },
+  },
+  {
+    name: 'insert_diagram',
+    description:
+      'Draw a flowchart from Mermaid source as native shapes and arrows the user can then move and restyle. Use it for a process, a decision tree or a dependency graph — anything add_smartart\'s seven fixed layouts cannot express. Only flowcharts: start the source with "flowchart TD" (top-down) or "flowchart LR" (left-right). Node shapes follow Mermaid: A[box], A(rounded), A{decision}, A((circle)); label an arrow with -->|text|.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slideIndex: { type: 'integer' },
+        mermaid: {
+          type: 'string',
+          description: 'Mermaid flowchart source, e.g. "flowchart TD; A[Submit] --> B{Approved?}"',
+        },
+        x: { type: 'number', description: 'area for the diagram; omit to use the page body' },
+        y: { type: 'number' },
+        w: { type: 'number' },
+        h: { type: 'number' },
+      },
+      required: ['slideIndex', 'mermaid'],
     },
   },
   {
@@ -3676,6 +3698,75 @@ async function executeTool(
           : `Cleared the animations on page ${idx + 1}.`,
         mutated: true,
         summary: t('aiSumSetAnimation', { n: idx + 1 }),
+      }
+    }
+
+    case 'insert_diagram': {
+      const idx = Number(call.input.slideIndex)
+      if (!slides[idx])
+        return fail(t('aiFailDiagram'), `slideIndex out of range (0-${slides.length - 1})`)
+      const parsed = parseMermaidFlow(String(call.input.mermaid ?? ''))
+      if ('error' in parsed) return fail(t('aiFailDiagram'), parsed.error)
+      const slide = slides[idx]!
+      const area = {
+        x: Number(call.input.x ?? 84),
+        y: Number(call.input.y ?? 180),
+        w: Number(call.input.w ?? slide.widthPx - 168),
+        h: Number(call.input.h ?? slide.heightPx - 260),
+      }
+      const { shapes, connectors } = layoutFlow(parsed.graph, area)
+      const ids = new Map<string, string>()
+      for (const node of shapes) {
+        const r = await window.slidesApi.addElement({
+          slideIndex: idx,
+          kind: presetFor(node.shape),
+          xPx: node.x,
+          yPx: node.y,
+          wPx: node.w,
+          hPx: node.h,
+          fitWidthPx: access.fitWidthPx,
+          paragraphs: [{ runs: [{ text: node.text, fontSize: 14 }], align: 'center' as const }],
+          fillColor: '#EEF2FB',
+        })
+        if (!r) return fail(t('aiFailDiagram'), `Could not draw node ${node.id}`)
+        ids.set(node.id, r.sourceId)
+        access.applySlide(idx, r.slide)
+      }
+      // Arrows last so they sit above the boxes, and each one is flipped to
+      // point at its target: a connector's bounding box carries no direction,
+      // so an unflipped right-to-left edge points backwards.
+      for (const c of connectors) {
+        const r = await window.slidesApi.addElement({
+          slideIndex: idx,
+          kind: 'lineArrow',
+          xPx: c.x,
+          yPx: c.y,
+          wPx: c.w,
+          hPx: c.h,
+          fitWidthPx: access.fitWidthPx,
+        })
+        if (!r) continue
+        access.applySlide(idx, r.slide)
+        for (const axis of [c.flipH ? 'h' : null, c.flipV ? 'v' : null]) {
+          if (!axis) continue
+          const flipped = await window.slidesApi.flipElements({
+            slideIndex: idx,
+            sourceIds: [r.sourceId],
+            axis: axis as 'h' | 'v',
+          })
+          if (flipped) access.applySlide(idx, flipped)
+        }
+      }
+      const labelled = connectors.filter((c) => c.label).length
+      return {
+        output:
+          `Drew a ${parsed.graph.dir === 'TD' ? 'top-down' : 'left-right'} flowchart on page ${idx + 1}: ` +
+          `${shapes.length} nodes, ${connectors.length} arrows. Every part is a normal shape — move or restyle any of them.` +
+          (labelled
+            ? ` ${labelled} arrow label(s) were not drawn; add them with add_text_box if they matter.`
+            : ''),
+        mutated: true,
+        summary: t('aiSumDiagram', { n: idx + 1 }),
       }
     }
 
