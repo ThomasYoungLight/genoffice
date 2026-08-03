@@ -196,23 +196,66 @@ function textBox(
 }
 
 /**
- * Height a text box needs, from a crude character-per-line estimate. Exact
- * measurement would need the shaping engine; this only has to be close enough
- * that boxes do not overlap, and it must err generous.
+ * Advance width in px per point of font size.
  *
- * The ratio is measured against what the renderer actually draws, not against
- * Calibri's nominal metrics: a 46pt line of mixed-case text came out at ~0.68
- * of the point size per character, and 0.55 (the typographic figure) made a
- * two-line title report as one, which overlapped whatever sat under it. 0.72
- * keeps the error on the safe side — a box slightly too tall costs nothing,
- * a box too short collides.
+ * `latin` is measured against what the renderer actually draws, not against
+ * Calibri's nominal metrics: a 46pt line of mixed-case text came out at ~0.68,
+ * and 0.55 (the typographic figure) made a two-line title report as one, which
+ * overlapped whatever sat under it. 0.72 keeps the error on the safe side — a
+ * box slightly too tall costs nothing, a box too short collides.
+ *
+ * `wide` is one em: a CJK glyph occupies the full square, near twice a Latin
+ * one. Averaging the two into a single ratio silently under-counts every
+ * Chinese, Japanese and Korean deck by about 40% — the app ships nineteen
+ * locales, so that is not an edge case. Measured per character instead.
  */
-const CHAR_W_RATIO = 0.72
+const CHAR_W = { latin: 0.72, wide: 1.33 } as const
 
+/**
+ * Whether a character occupies a full-width cell. Ranges follow the same
+ * set OfficeCLI uses for its own overflow check (Apache-2.0, iOfficeAI):
+ * unified ideographs and extension A, compatibility ideographs, CJK symbols
+ * and punctuation, fullwidth forms, kana, Hangul syllables, bopomofo.
+ * Halfwidth katakana (FF61–FF9F) is deliberately not in it.
+ */
+function isWideChar(code: number): boolean {
+  return (
+    (code >= 0x4e00 && code <= 0x9fff) ||
+    (code >= 0x3400 && code <= 0x4dbf) ||
+    (code >= 0xf900 && code <= 0xfaff) ||
+    (code >= 0x3000 && code <= 0x303f) ||
+    (code >= 0xff01 && code <= 0xff60) ||
+    (code >= 0x3040 && code <= 0x309f) ||
+    (code >= 0x30a0 && code <= 0x30ff) ||
+    (code >= 0xac00 && code <= 0xd7af) ||
+    (code >= 0x3100 && code <= 0x312f)
+  )
+}
+
+/** How many rendered rows a single line wraps into inside `widthPx`. */
+function wrapRows(line: string, sizePt: number, widthPx: number): number {
+  if (!line) return 1
+  let rows = 1
+  let w = 0
+  for (const ch of line) {
+    const cw = sizePt * (isWideChar(ch.codePointAt(0) ?? 0) ? CHAR_W.wide : CHAR_W.latin)
+    if (w + cw > widthPx && w > 0) {
+      rows++
+      w = cw
+    } else {
+      w += cw
+    }
+  }
+  return rows
+}
+
+/**
+ * Height a text box needs. Exact measurement would need the shaping engine;
+ * this only has to be close enough that boxes do not overlap, and it must err
+ * generous.
+ */
 export function estimateTextHeight(lines: string[], sizePt: number, widthPx: number): number {
-  const charW = sizePt * CHAR_W_RATIO
-  const perLine = Math.max(1, Math.floor(widthPx / charW))
-  const rows = lines.reduce((n, line) => n + Math.max(1, Math.ceil(line.length / perLine)), 0)
+  const rows = lines.reduce((n, line) => n + wrapRows(line, sizePt, widthPx), 0)
   return Math.ceil(rows * sizePt * 1.35 * 1.34) // pt → px at 96dpi, with leading
 }
 
@@ -245,13 +288,46 @@ function fitText(
   while (out.length > 1 && estimateTextHeight(out, size, widthPx) > heightPx) out = out.slice(0, -1)
   const first = out[0]
   if (first && estimateTextHeight(out, size, widthPx) > heightPx) {
-    // one line, still too tall: keep the characters that fit and mark the cut
-    const charW = size * CHAR_W_RATIO
-    const perLine = Math.max(1, Math.floor(widthPx / charW))
+    // one line, still too tall: keep the characters that fit
     const rows = Math.max(1, Math.floor(heightPx / (size * 1.35 * 1.34)))
-    out = [`${first.slice(0, Math.max(8, perLine * rows - 1)).trimEnd()}…`]
+    out = [clipAt(first, charBudget(first, size, widthPx * rows))]
   }
   return { size, lines: out }
+}
+
+/** How many characters of `text` fit in `budgetPx` of total advance width. */
+function charBudget(text: string, sizePt: number, budgetPx: number): number {
+  let w = 0
+  let n = 0
+  for (const ch of text) {
+    w += sizePt * (isWideChar(ch.codePointAt(0) ?? 0) ? CHAR_W.wide : CHAR_W.latin)
+    if (w > budgetPx) break
+    n++
+  }
+  return Math.max(8, n - 1)
+}
+
+/**
+ * Cut a run of text to fit, ending somewhere a reader can stop.
+ *
+ * A cut mid-clause ("…assigned within 10 minutes: 83% (15 of 18); …") reads
+ * as damage. Ending on the last complete sentence inside the budget reads as
+ * an editor's choice, so a sentence boundary in the back half of the space
+ * wins over the extra half-sentence it costs. Failing that, a word boundary
+ * with an ellipsis, which at least does not sever a word.
+ */
+function clipAt(text: string, max: number): string {
+  const room = text.slice(0, max)
+  const sentence = Math.max(
+    room.lastIndexOf('. '),
+    room.lastIndexOf('! '),
+    room.lastIndexOf('? '),
+    // a trailing terminator with nothing after it is also a clean stop
+    /[.!?]$/.test(room.trimEnd()) ? room.trimEnd().length - 1 : -1,
+  )
+  if (sentence > max * 0.5) return room.slice(0, sentence + 1).trimEnd()
+  const space = room.lastIndexOf(' ')
+  return `${(space > max * 0.6 ? room.slice(0, space) : room).trimEnd()}…`
 }
 
 // ── layouts ─────────────────────────────────────────────

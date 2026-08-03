@@ -373,3 +373,127 @@ describe('theme and layout selection', () => {
     expect(themeFor(undefined)).toBe(LIGHT_THEME)
   })
 })
+
+/**
+ * A generated deck ended a comparison column mid-clause — "…assigned within 10
+ * minutes: 83% (15 of 18); …" — which reads as damage rather than editing.
+ */
+describe('clipping ends somewhere a reader can stop', () => {
+  const bodyOf = (text: string) => {
+    const page = layoutPage(
+      'comparison',
+      {
+        title: 'Two ways to look at it',
+        cards: [
+          { heading: 'Left', body: text },
+          { heading: 'Right', body: 'short' },
+        ],
+      },
+      LIGHT_THEME,
+    )
+    return page.elements
+      .filter((e) => e.kind === 'text')
+      .flatMap((e) => (e.kind === 'text' ? e.paragraphs : []))
+      .map((p) => p.runs[0]!.text)
+      .find((t) => t.startsWith(text.slice(0, 10)))!
+  }
+
+  it('stops at the last full sentence when there is one', () => {
+    const long =
+      'Median MTTA is four minutes. An incident commander is assigned within ten minutes in 83% of cases. ' +
+      'Corrective actions close on time in 66% of cases, which is the number the team is trying to move this quarter. ' +
+      'The remainder slip into the following month and are re-triaged at the weekly review, usually without much ceremony. ' +
+      'That backlog is the single largest contributor to repeat incidents across the last three quarters of data.'
+    const out = bodyOf(long)
+    expect(out.length).toBeLessThan(long.length)
+    expect(out.endsWith('.')).toBe(true)
+    expect(out.endsWith('…')).toBe(false)
+    // and it is a real prefix of the original, not a mangled one
+    expect(long.startsWith(out)).toBe(true)
+  })
+
+  it('falls back to a word boundary when no sentence fits', () => {
+    const noStops = `${'word '.repeat(200)}end`
+    const out = bodyOf(noStops)
+    expect(out.endsWith('…')).toBe(true)
+    expect(out.replace('…', '').trimEnd().endsWith('word')).toBe(true)
+  })
+
+  it('leaves text that fits completely alone', () => {
+    const short = 'Two deals slipped; both are procurement-blocked.'
+    expect(bodyOf(short)).toBe(short)
+  })
+})
+
+/**
+ * A CJK glyph occupies the full em square — close to twice a Latin character.
+ * A single blended width ratio under-counted every Chinese, Japanese and
+ * Korean deck by roughly 40%, so boxes were sized for text that could not fit
+ * them. The app ships nineteen locales; this is not an edge case.
+ */
+describe('full-width text', () => {
+  const CJK: PageContent = {
+    title: '远程工程团队为什么应该用异步写作代替会议',
+    subtitle: '面向工程负责人的季度评审材料，二零二六年十一月',
+    bullets: [
+      '会议把深度工作切成无法使用的碎片，恢复成本远高于会议本身',
+      '同步出席被当作参与，把不在同一时区的同事排除在外',
+      '口头达成的决定没有记录，几周后没有人能复述当时的理由',
+    ],
+    cards: [
+      { heading: '增长', body: '自助渠道带动新客户增长百分之二十四，续约窗口前还会继续提升。' },
+      { heading: '风险', body: '两笔企业订单顺延，都卡在采购流程，并非丢单。' },
+      { heading: '重点', body: '在一月续约窗口之前完成新版引导流程。' },
+    ],
+    kpis: [
+      { value: '18%', label: '环比收入增长' },
+      { value: '2.1%', label: '月度流失率' },
+    ],
+    figure: { value: '18%', caption: '环比收入增长，连续六个季度最高' },
+    source: '来源：内部财务报表，二零二六年十月',
+  }
+
+  it('measures a wide glyph as wider than a latin one', () => {
+    // same character count, very different rendered width
+    const latin = estimateTextHeight(['aaaaaaaaaaaaaaaaaaaa'], 24, 300)
+    const wide = estimateTextHeight(['一二三四五六七八九十一二三四五六七八九十'], 24, 300)
+    expect(wide).toBeGreaterThan(latin)
+  })
+
+  it.each(ALL)('keeps a CJK page inside the canvas: %s', (layout) => {
+    for (const theme of [LIGHT_THEME, DARK_THEME]) {
+      for (const el of layoutPage(layout, CJK, theme).elements) {
+        expect(el.x).toBeGreaterThanOrEqual(0)
+        expect(el.y).toBeGreaterThanOrEqual(0)
+        expect(el.x + el.w).toBeLessThanOrEqual(CANVAS.w)
+        expect(el.y + el.h).toBeLessThanOrEqual(CANVAS.h)
+      }
+    }
+  })
+
+  it.each(ALL)('keeps CJK text inside its own box: %s', (layout) => {
+    for (const el of layoutPage(layout, CJK, LIGHT_THEME).elements) {
+      if (el.kind !== 'text') continue
+      const lines = el.paragraphs.map((p) => p.runs.map((r) => r.text).join(''))
+      const size = el.paragraphs[0]?.runs[0]?.fontSize ?? 12
+      const spacing = el.paragraphs[0]?.lineSpacingPct ? el.paragraphs[0].lineSpacingPct / 100 : 1
+      expect(estimateTextHeight(lines, size, el.w) * spacing).toBeLessThanOrEqual(el.h + 1)
+    }
+  })
+
+  it.each(ALL)('does not overlap on a CJK page: %s', (layout) => {
+    const content = boxes(layoutPage(layout, CJK, LIGHT_THEME).elements)
+    for (let i = 0; i < content.length; i++) {
+      for (let j = i + 1; j < content.length; j++) {
+        expect(overlaps(content[i]!, content[j]!), `${layout}: ${i} overlaps ${j}`).toBe(false)
+      }
+    }
+  })
+
+  it('treats halfwidth katakana as narrow, not full width', () => {
+    // FF61-FF9F is halfwidth despite sitting in the fullwidth forms block
+    const half = estimateTextHeight(['ｱｲｳｴｵｱｲｳｴｵｱｲｳｴｵｱｲｳｴｵ'], 24, 300)
+    const full = estimateTextHeight(['アイウエオアイウエオアイウエオアイウエオ'], 24, 300)
+    expect(half).toBeLessThan(full)
+  })
+})
