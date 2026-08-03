@@ -32,6 +32,9 @@ So `npm run agent-check` (which CI runs) enforces both directions:
 It runs alongside `tools/agent-reachability.mjs`, which asks the neighbouring
 question: which app capabilities the agent has no tool for at all.
 
+What neither of them covers — capability the products do not have yet — is in
+[../design/agent-capability-gaps.md](../design/agent-capability-gaps.md).
+
 Argument names and enum values are read out of the schemas, so a word only needs
 listing in the generator's `NOT_TOOLS` allowlist if it is genuinely neither — a
 protocol tag, an endpoint name, or vocabulary a prompt invented for an example.
