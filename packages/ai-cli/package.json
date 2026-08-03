@@ -1,0 +1,25 @@
+{
+  "name": "@genoffice/ai-cli",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "description": "Locally installed agent CLIs (Claude Code, Codex) used as AI backends: detection, subprocess streaming, and the prompt-level tool-call protocol. Main process only (spawns processes).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@genoffice/agent-core": "*",
+    "@genoffice/ai-provider": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0"
+  }
+}

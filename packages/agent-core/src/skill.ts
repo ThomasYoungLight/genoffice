@@ -28,24 +28,35 @@ export interface AgentSkill {
  * `intro` becomes the shared preamble of the combined system prompt.
  */
 export function composeSkills(id: string, intro: string, skills: AgentSkill[]): AgentSkill {
-  const owner = new Map<string, AgentSkill>()
+  // name collisions are a programming error, so check once up front
+  const seen = new Set<string>()
   for (const skill of skills) {
     for (const tool of skill.tools) {
-      if (owner.has(tool.name)) throw new Error(`duplicate tool name: ${tool.name}`)
-      owner.set(tool.name, skill)
+      if (seen.has(tool.name)) throw new Error(`duplicate tool name: ${tool.name}`)
+      seen.add(tool.name)
     }
   }
   return {
     id,
     systemPrompt: [intro, ...skills.map((s) => s.systemPrompt)].filter(Boolean).join('\n\n'),
-    tools: skills.flatMap((s) => s.tools),
+    /**
+     * Recomputed per read rather than flattened once: a skill may vary the
+     * tools it offers over the life of a conversation (slides withholds the
+     * Genspark-only tools until that account is known to be available), and a
+     * composed skill is built when the panel mounts, well before such a check
+     * can have answered.
+     */
+    get tools(): AgentToolDef[] {
+      return skills.flatMap((s) => s.tools)
+    },
     buildContext: () =>
       skills
         .map((s) => s.buildContext?.() ?? '')
         .filter(Boolean)
         .join('\n\n'),
     executeTool: (call, signal) => {
-      const skill = owner.get(call.name)
+      // resolved against the current tool lists for the same reason
+      const skill = skills.find((s) => s.tools.some((tool) => tool.name === call.name))
       if (!skill) {
         return { output: `Unknown tool: ${call.name}`, isError: true, summary: call.name }
       }
