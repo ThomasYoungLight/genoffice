@@ -111,7 +111,11 @@ export function installCellFilenameFunction(
 ): { dispose(): void } {
   const functionService = runtime.univer.__getInjector().get(IFunctionService)
   const name = FUNCTION_NAMES_INFORMATION.CELL
-  const executor = new CellWithFilename(name, functionService.getExecutor(name) ?? undefined, getPath)
+  const executor = new CellWithFilename(
+    name,
+    functionService.getExecutor(name) ?? undefined,
+    getPath,
+  )
   functionService.registerExecutors(executor)
   // Registration order vs. the builtin set is not guaranteed; re-assert once
   // (adopting a builtin that landed on top as the delegate).

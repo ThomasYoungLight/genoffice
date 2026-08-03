@@ -9,10 +9,7 @@ import { join } from 'node:path'
 import { BrowserWindow, dialog } from 'electron'
 
 import type { IpcMainInvokeEvent } from 'electron'
-import type {
-  WorkbookExportPdfRequest,
-  WorkbookExportPdfResult,
-} from '../shared/desktop-api'
+import type { WorkbookExportPdfRequest, WorkbookExportPdfResult } from '../shared/desktop-api'
 
 export async function exportPdf(
   event: IpcMainInvokeEvent,

@@ -1,10 +1,7 @@
 import JSZip from 'jszip'
 import { describe, expect, it } from 'vitest'
 
-import {
-  applyCellEditsToXlsx,
-  assertOnlyTouchedEntriesChanged,
-} from '../src/gateway/xlsx-gateway'
+import { applyCellEditsToXlsx, assertOnlyTouchedEntriesChanged } from '../src/gateway/xlsx-gateway'
 import {
   assertSheetRelsRemovable,
   formatSheetQualifier,
@@ -43,10 +40,12 @@ describe('sheet name rules', () => {
 
 describe('renameSheetInFormula', () => {
   it('rewrites qualified references and leaves the rest alone', () => {
-    expect(renameSheetInFormula('Data!A1+SUM(Data!B1:B9)+A1', 'Data', 'Numbers'))
-      .toBe('Numbers!A1+SUM(Numbers!B1:B9)+A1')
-    expect(renameSheetInFormula("'My Sheet'!$A$1&\"Data!A1\"", 'My Sheet', 'Plain'))
-      .toBe('Plain!$A$1&"Data!A1"')
+    expect(renameSheetInFormula('Data!A1+SUM(Data!B1:B9)+A1', 'Data', 'Numbers')).toBe(
+      'Numbers!A1+SUM(Numbers!B1:B9)+A1',
+    )
+    expect(renameSheetInFormula('\'My Sheet\'!$A$1&"Data!A1"', 'My Sheet', 'Plain')).toBe(
+      'Plain!$A$1&"Data!A1"',
+    )
     expect(renameSheetInFormula('Other!A1', 'Data', 'Numbers')).toBe('Other!A1')
   })
 })
@@ -70,17 +69,19 @@ describe('sheet visibility and order save', () => {
 
   it('unhides by removing the state attribute and rejects hiding every sheet', async () => {
     const source = await buildSheetsFixture()
-    await expect(applyCellEditsToXlsx(source, [], [], [], {
-      renames: [],
-      additions: [],
-      removals: [],
-      hiddenChanges: [
-        { sheetName: 'Data', hidden: true },
-        { sheetName: 'Other', hidden: true },
-        { sheetName: 'My Sheet', hidden: true },
-      ],
-      order: ['Data', 'Other', 'My Sheet'],
-    })).rejects.toThrow(/at least one visible sheet/)
+    await expect(
+      applyCellEditsToXlsx(source, [], [], [], {
+        renames: [],
+        additions: [],
+        removals: [],
+        hiddenChanges: [
+          { sheetName: 'Data', hidden: true },
+          { sheetName: 'Other', hidden: true },
+          { sheetName: 'My Sheet', hidden: true },
+        ],
+        order: ['Data', 'Other', 'My Sheet'],
+      }),
+    ).rejects.toThrow(/at least one visible sheet/)
   })
 })
 
@@ -117,7 +118,9 @@ describe('sheet rename save', () => {
     const other = await entryText(mutation.buffer, 'xl/worksheets/sheet2.xml')
     expect(other).toContain('<f>Data!A1+SUM(Plain!A1:A2)</f>')
     const workbook = await entryText(mutation.buffer, 'xl/workbook.xml')
-    expect(workbook).toContain('<definedName name="LocalMy" localSheetId="2">Plain!$A$1</definedName>')
+    expect(workbook).toContain(
+      '<definedName name="LocalMy" localSheetId="2">Plain!$A$1</definedName>',
+    )
 
     const spaced = await applyCellEditsToXlsx(await buildSheetsFixture(), [], [], [], {
       renames: [{ sheetName: 'Data', newName: 'New Data' }],
@@ -130,18 +133,22 @@ describe('sheet rename save', () => {
   })
 
   it('rejects duplicate and invalid names', async () => {
-    await expect(applyCellEditsToXlsx(await buildSheetsFixture(), [], [], [], {
-      renames: [{ sheetName: 'Data', newName: 'Other' }],
-      additions: [],
-      removals: [],
-      order: ['Other', 'Other', 'My Sheet'],
-    })).rejects.toThrow('same name')
-    await expect(applyCellEditsToXlsx(await buildSheetsFixture(), [], [], [], {
-      renames: [{ sheetName: 'Data', newName: 'bad[name' }],
-      additions: [],
-      removals: [],
-      order: ['bad[name', 'Other', 'My Sheet'],
-    })).rejects.toThrow('forbidden character')
+    await expect(
+      applyCellEditsToXlsx(await buildSheetsFixture(), [], [], [], {
+        renames: [{ sheetName: 'Data', newName: 'Other' }],
+        additions: [],
+        removals: [],
+        order: ['Other', 'Other', 'My Sheet'],
+      }),
+    ).rejects.toThrow('same name')
+    await expect(
+      applyCellEditsToXlsx(await buildSheetsFixture(), [], [], [], {
+        renames: [{ sheetName: 'Data', newName: 'bad[name' }],
+        additions: [],
+        removals: [],
+        order: ['bad[name', 'Other', 'My Sheet'],
+      }),
+    ).rejects.toThrow('forbidden character')
   })
 })
 
@@ -201,33 +208,41 @@ describe('sheet remove save', () => {
   })
 
   it('fails closed when formulas, charts, or defined names still reference the sheet', async () => {
-    await expect(applyCellEditsToXlsx(await buildSheetsFixture(), [], [], [], {
-      renames: [],
-      additions: [],
-      removals: ['My Sheet'],
-      order: ['Data', 'Other'],
-    })).rejects.toThrow('reference "My Sheet"')
-    await expect(applyCellEditsToXlsx(await buildSheetsFixture(), [], [], [], {
-      renames: [],
-      additions: [],
-      removals: ['Data'],
-      order: ['Other', 'My Sheet'],
-    })).rejects.toThrow('"Data"')
+    await expect(
+      applyCellEditsToXlsx(await buildSheetsFixture(), [], [], [], {
+        renames: [],
+        additions: [],
+        removals: ['My Sheet'],
+        order: ['Data', 'Other'],
+      }),
+    ).rejects.toThrow('reference "My Sheet"')
+    await expect(
+      applyCellEditsToXlsx(await buildSheetsFixture(), [], [], [], {
+        renames: [],
+        additions: [],
+        removals: ['Data'],
+        order: ['Other', 'My Sheet'],
+      }),
+    ).rejects.toThrow('"Data"')
   })
 
   it('refuses to remove the last visible sheet', async () => {
-    await expect(applyCellEditsToXlsx(await buildCompatibilityFixture(), [], [], [], {
-      renames: [],
-      additions: [],
-      removals: ['Sheet1'],
-      order: [],
-    })).rejects.toThrow('visible sheet')
+    await expect(
+      applyCellEditsToXlsx(await buildCompatibilityFixture(), [], [], [], {
+        renames: [],
+        additions: [],
+        removals: ['Sheet1'],
+        order: [],
+      }),
+    ).rejects.toThrow('visible sheet')
   })
 
   it('refuses sheets that carry drawings or tables', () => {
-    const drawingRels = '<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>'
+    const drawingRels =
+      '<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>'
     expect(() => assertSheetRelsRemovable(drawingRels, 'Data')).toThrow(SheetEditError)
-    const hyperlinkRels = '<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com" TargetMode="External"/></Relationships>'
+    const hyperlinkRels =
+      '<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com" TargetMode="External"/></Relationships>'
     expect(() => assertSheetRelsRemovable(hyperlinkRels, 'Data')).not.toThrow()
   })
 })
@@ -253,7 +268,9 @@ describe('sheet duplicate save', () => {
     const copy = await entryText(mutation.buffer, 'xl/worksheets/sheet4.xml')
     // Source content survives — including its formula — plus the new edit.
     expect(copy).toContain("<f>'My Sheet'!A1*2</f>")
-    expect(copy).toContain('<c r="B1" t="inlineStr"><is><t xml:space="preserve">copied</t></is></c>')
+    expect(copy).toContain(
+      '<c r="B1" t="inlineStr"><is><t xml:space="preserve">copied</t></is></c>',
+    )
     // The source part itself is byte-untouched.
     expect(mutation.touchedEntries).not.toContain('xl/worksheets/sheet1.xml')
     const source = await entryText(mutation.buffer, 'xl/worksheets/sheet1.xml')
@@ -273,10 +290,10 @@ describe('sheet duplicate save', () => {
     )
     zip.file(
       'xl/worksheets/_rels/sheet1.xml.rels',
-      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-      + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com" TargetMode="External"/>'
-      + '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/printerSettings" Target="../printerSettings/printerSettings1.bin"/>'
-      + '</Relationships>',
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com" TargetMode="External"/>' +
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/printerSettings" Target="../printerSettings/printerSettings1.bin"/>' +
+        '</Relationships>',
     )
     zip.file('xl/printerSettings/printerSettings1.bin', Buffer.from([1, 2, 3]))
     const source = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
@@ -303,40 +320,54 @@ describe('sheet duplicate save', () => {
     const zip = await JSZip.loadAsync(await buildSheetsFixture())
     zip.file(
       'xl/worksheets/_rels/sheet1.xml.rels',
-      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-      + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>'
-      + '</Relationships>',
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>' +
+        '</Relationships>',
     )
     const withDrawing = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
-    await expect(applyCellEditsToXlsx(withDrawing, [], [], [], {
-      renames: [],
-      additions: [{ name: 'Data Copy', sourceSheetName: 'Data' }],
-      removals: [],
-      order: ['Data', 'Data Copy', 'Other', 'My Sheet'],
-    })).rejects.toThrow('not supported yet')
+    await expect(
+      applyCellEditsToXlsx(withDrawing, [], [], [], {
+        renames: [],
+        additions: [{ name: 'Data Copy', sourceSheetName: 'Data' }],
+        removals: [],
+        order: ['Data', 'Data Copy', 'Other', 'My Sheet'],
+      }),
+    ).rejects.toThrow('not supported yet')
 
     // "Other" carries a sheet-scoped Print_Area (localSheetId=1).
-    await expect(applyCellEditsToXlsx(await buildSheetsFixture(), [], [], [], {
-      renames: [],
-      additions: [{ name: 'Other Copy', sourceSheetName: 'Other' }],
-      removals: [],
-      order: ['Data', 'Other', 'Other Copy', 'My Sheet'],
-    })).rejects.toThrow('sheet-scoped defined names')
+    await expect(
+      applyCellEditsToXlsx(await buildSheetsFixture(), [], [], [], {
+        renames: [],
+        additions: [{ name: 'Other Copy', sourceSheetName: 'Other' }],
+        removals: [],
+        order: ['Data', 'Other', 'Other Copy', 'My Sheet'],
+      }),
+    ).rejects.toThrow('sheet-scoped defined names')
   })
 
   it('clone helpers sanitize part-scoped state', () => {
-    expect(sanitizeClonedWorksheetXml(
-      '<sheetViews><sheetView tabSelected="1" workbookViewId="0"/></sheetViews>',
-    )).toBe('<sheetViews><sheetView workbookViewId="0"/></sheetViews>')
-    expect(stripPageSetupRelIds('<pageSetup paperSize="9" r:id="rId3" orientation="portrait"/>'))
-      .toBe('<pageSetup paperSize="9" orientation="portrait"/>')
-    const hyperlinkOnly = '<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com" TargetMode="External"/></Relationships>'
-    expect(prepareClonedSheetRels(hyperlinkOnly, 'Data'))
-      .toEqual({ relsXml: hyperlinkOnly, droppedPrinterSettings: false })
-    const printerOnly = '<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/printerSettings" Target="../printerSettings/printerSettings1.bin"/></Relationships>'
-    expect(prepareClonedSheetRels(printerOnly, 'Data'))
-      .toEqual({ relsXml: null, droppedPrinterSettings: true })
-    const commentRels = '<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="../comments1.xml"/></Relationships>'
+    expect(
+      sanitizeClonedWorksheetXml(
+        '<sheetViews><sheetView tabSelected="1" workbookViewId="0"/></sheetViews>',
+      ),
+    ).toBe('<sheetViews><sheetView workbookViewId="0"/></sheetViews>')
+    expect(
+      stripPageSetupRelIds('<pageSetup paperSize="9" r:id="rId3" orientation="portrait"/>'),
+    ).toBe('<pageSetup paperSize="9" orientation="portrait"/>')
+    const hyperlinkOnly =
+      '<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com" TargetMode="External"/></Relationships>'
+    expect(prepareClonedSheetRels(hyperlinkOnly, 'Data')).toEqual({
+      relsXml: hyperlinkOnly,
+      droppedPrinterSettings: false,
+    })
+    const printerOnly =
+      '<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/printerSettings" Target="../printerSettings/printerSettings1.bin"/></Relationships>'
+    expect(prepareClonedSheetRels(printerOnly, 'Data')).toEqual({
+      relsXml: null,
+      droppedPrinterSettings: true,
+    })
+    const commentRels =
+      '<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="../comments1.xml"/></Relationships>'
     expect(() => prepareClonedSheetRels(commentRels, 'Data')).toThrow(SheetEditError)
   })
 })
@@ -359,9 +390,9 @@ describe('combined sheet operations', () => {
     const workbook = await entryText(mutation.buffer, 'xl/workbook.xml')
     const sheetsBlock = /<sheets>([\s\S]*?)<\/sheets>/.exec(workbook)?.[1] ?? ''
     expect(sheetsBlock).toBe(
-      '<sheet name="Summary" sheetId="4" r:id="rId6"/>'
-      + '<sheet name="Numbers" sheetId="1" r:id="rId1"/>'
-      + '<sheet name="My Sheet" sheetId="3" r:id="rId3"/>',
+      '<sheet name="Summary" sheetId="4" r:id="rId6"/>' +
+        '<sheet name="Numbers" sheetId="1" r:id="rId1"/>' +
+        '<sheet name="My Sheet" sheetId="3" r:id="rId3"/>',
     )
     const chart = await entryText(mutation.buffer, 'xl/charts/chart1.xml')
     expect(chart).toContain('<c:f>Numbers!$A$1:$A$2</c:f>')
@@ -370,11 +401,13 @@ describe('combined sheet operations', () => {
   })
 
   it('rejects an order that does not match the final sheet set', async () => {
-    await expect(applyCellEditsToXlsx(await buildSheetsFixture(), [], [], [], {
-      renames: [],
-      additions: [],
-      removals: ['Other'],
-      order: ['Data', 'Other', 'My Sheet'],
-    })).rejects.toThrow('sheet order')
+    await expect(
+      applyCellEditsToXlsx(await buildSheetsFixture(), [], [], [], {
+        renames: [],
+        additions: [],
+        removals: ['Other'],
+        order: ['Data', 'Other', 'My Sheet'],
+      }),
+    ).rejects.toThrow('sheet order')
   })
 })

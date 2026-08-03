@@ -67,10 +67,7 @@ export class XlsxSidecarClient {
     return this.request({ command: 'read_media', ...input })
   }
 
-  async convertWorkbook(input: {
-    path: string
-    targetPath: string
-  }): Promise<unknown> {
+  async convertWorkbook(input: { path: string; targetPath: string }): Promise<unknown> {
     return this.request({ command: 'convert_workbook', ...input }, ARCHIVE_TIMEOUT_MS)
   }
 

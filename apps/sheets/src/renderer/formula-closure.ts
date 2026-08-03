@@ -15,12 +15,12 @@ export interface ClosureSheetInput {
 
 export type ClosureResult =
   | {
-    readonly ok: true
-    /// Per sheet id: every closure cell (formulas and precedents).
-    readonly cellsBySheet: Map<string, Set<number>>
-    readonly formulaCount: number
-    readonly totalCells: number
-  }
+      readonly ok: true
+      /// Per sheet id: every closure cell (formulas and precedents).
+      readonly cellsBySheet: Map<string, Set<number>>
+      readonly formulaCount: number
+      readonly totalCells: number
+    }
   | { readonly ok: false; readonly reason: string }
 
 const MAX_COLUMNS = 16_384
@@ -77,8 +77,7 @@ function parseReferenceToken(token: string): ParsedToken | null {
       endColumn: null,
     }
   }
-  const cells = token.split(':').map((part) =>
-    /^\$?([A-Z]{1,3})\$?([0-9]+)$/.exec(part))
+  const cells = token.split(':').map((part) => /^\$?([A-Z]{1,3})\$?([0-9]+)$/.exec(part))
   if (cells.some((cell) => cell === null)) return null
   const rows = cells.map((cell) => Number(cell?.[2]) - 1)
   const columns = cells.map((cell) => lettersToColumn(cell?.[1] ?? 'A'))
@@ -118,7 +117,7 @@ export function containsUnresolvedNames(formula: string): boolean {
       (_full, lead: string) => `${lead} `,
     )
     for (const match of stripped.matchAll(/[A-Za-z_][A-Za-z0-9_.]*/g)) {
-      const before = match.index === 0 ? '' : stripped[match.index - 1] ?? ''
+      const before = match.index === 0 ? '' : (stripped[match.index - 1] ?? '')
       if (/[A-Za-z0-9_.$'!]/.test(before)) continue
       const name = match[0]
       if (name === 'TRUE' || name === 'FALSE') continue
@@ -164,12 +163,17 @@ export function computeFormulaClosure(
         return { ok: false, reason: 'formula uses a defined name or external reference' }
       }
       for (const reference of parseFormulaReferences(cell.formula)) {
-        const target = reference.qualifier === undefined
-          ? sheet
-          : sheets.find((candidate) => qualifierMatches(reference.qualifier ?? '', candidate.name))
-            ?? byName.get(unquote(reference.qualifier).toLowerCase())
+        const target =
+          reference.qualifier === undefined
+            ? sheet
+            : (sheets.find((candidate) =>
+                qualifierMatches(reference.qualifier ?? '', candidate.name),
+              ) ?? byName.get(unquote(reference.qualifier).toLowerCase()))
         if (!target) {
-          return { ok: false, reason: `formula references an unknown sheet (${reference.qualifier ?? ''})` }
+          return {
+            ok: false,
+            reason: `formula references an unknown sheet (${reference.qualifier ?? ''})`,
+          }
         }
         const startRow = Math.max(reference.token.startRow ?? 0, 0)
         const endRow = Math.min(reference.token.endRow ?? target.rowCount - 1, target.rowCount - 1)
@@ -195,9 +199,7 @@ export function computeFormulaClosure(
 }
 
 function unquote(qualifier: string): string {
-  return qualifier.startsWith("'")
-    ? qualifier.slice(1, -1).replaceAll("''", "'")
-    : qualifier
+  return qualifier.startsWith("'") ? qualifier.slice(1, -1).replaceAll("''", "'") : qualifier
 }
 
 export interface ClosureRange {
@@ -266,8 +268,10 @@ export function recalcReadRanges(
   viewportStartRow: number,
   budget: number,
 ): ClosureRange[] {
-  const bands = closureFetchRanges(keys).sort((left, right) =>
-    Math.abs(left.startRow - viewportStartRow) - Math.abs(right.startRow - viewportStartRow))
+  const bands = closureFetchRanges(keys).sort(
+    (left, right) =>
+      Math.abs(left.startRow - viewportStartRow) - Math.abs(right.startRow - viewportStartRow),
+  )
   const ranges: ClosureRange[] = []
   let used = 0
   for (const band of bands) {

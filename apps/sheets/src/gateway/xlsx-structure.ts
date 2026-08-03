@@ -1,4 +1,3 @@
-
 /// Structural row/column transforms for worksheet XML. Operations replay in
 /// order; each rewrites row/cell addresses, same-sheet formula references,
 /// merges, and range-scoped features (hyperlinks, autoFilter, data
@@ -6,14 +5,34 @@
 /// safely throws — the save must fail closed rather than corrupt references.
 
 export type StructuralOp =
-  | { readonly kind: 'insert-rows' | 'remove-rows' | 'insert-cols' | 'remove-cols'; readonly index: number; readonly count: number }
+  | {
+      readonly kind: 'insert-rows' | 'remove-rows' | 'insert-cols' | 'remove-cols'
+      readonly index: number
+      readonly count: number
+    }
   | { readonly kind: 'merge-cells' | 'unmerge-cells'; readonly range: CellArea }
   /// size: points for rows, character width for columns; null = sheet default.
-  | { readonly kind: 'set-row-size' | 'set-col-size'; readonly start: number; readonly end: number; readonly size: number | null }
-  | { readonly kind: 'set-rows-hidden' | 'set-cols-hidden'; readonly start: number; readonly end: number; readonly hidden: boolean }
+  | {
+      readonly kind: 'set-row-size' | 'set-col-size'
+      readonly start: number
+      readonly end: number
+      readonly size: number | null
+    }
+  | {
+      readonly kind: 'set-rows-hidden' | 'set-cols-hidden'
+      readonly start: number
+      readonly end: number
+      readonly hidden: boolean
+    }
   /// level: absolute outline level 0-7 (0 removes the attribute); an omitted
   /// collapsed leaves the file's collapsed flag untouched.
-  | { readonly kind: 'set-rows-outline' | 'set-cols-outline'; readonly start: number; readonly end: number; readonly level: number; readonly collapsed?: boolean }
+  | {
+      readonly kind: 'set-rows-outline' | 'set-cols-outline'
+      readonly start: number
+      readonly end: number
+      readonly level: number
+      readonly collapsed?: boolean
+    }
 
 export type AxisAttributeOp = Extract<StructuralOp, { start: number }>
 
@@ -45,9 +64,12 @@ export function applyStructuralOps(
   for (const op of ops) {
     if ('start' in op) {
       outlineTouched ||= 'level' in op
-      xml = op.kind === 'set-row-size' || op.kind === 'set-rows-hidden' || op.kind === 'set-rows-outline'
-        ? applyRowAttributeOp(xml, op)
-        : applyColAttributeOp(xml, op)
+      xml =
+        op.kind === 'set-row-size' ||
+        op.kind === 'set-rows-hidden' ||
+        op.kind === 'set-rows-outline'
+          ? applyRowAttributeOp(xml, op)
+          : applyColAttributeOp(xml, op)
       continue
     }
     if (!('index' in op)) {
@@ -76,40 +98,41 @@ function syncOutlineSummaryLevels(xml: string): string {
   for (const match of xml.matchAll(/<col\b[^>]*?\boutlineLevel="([0-9]+)"/g)) {
     maxCol = Math.max(maxCol, Number(match[1]))
   }
-  const attributes = (maxRow > 0 ? ` outlineLevelRow="${maxRow}"` : '')
-    + (maxCol > 0 ? ` outlineLevelCol="${maxCol}"` : '')
+  const attributes =
+    (maxRow > 0 ? ` outlineLevelRow="${maxRow}"` : '') +
+    (maxCol > 0 ? ` outlineLevelCol="${maxCol}"` : '')
   const existing = /<sheetFormatPr\b([^>]*?)(\/?)>/.exec(xml)
   if (existing) {
     const kept = existing[1]!
       .replace(/\s+outlineLevelRow="[^"]*"/g, '')
       .replace(/\s+outlineLevelCol="[^"]*"/g, '')
-    return xml.slice(0, existing.index)
-      + `<sheetFormatPr${kept}${attributes}${existing[2]}>`
-      + xml.slice(existing.index + existing[0].length)
+    return (
+      xml.slice(0, existing.index) +
+      `<sheetFormatPr${kept}${attributes}${existing[2]}>` +
+      xml.slice(existing.index + existing[0].length)
+    )
   }
   if (!attributes) return xml
   const anchor = /<cols\b|<sheetData\b/.exec(xml)
   if (!anchor) return xml
-  return xml.slice(0, anchor.index)
-    + `<sheetFormatPr defaultRowHeight="15"${attributes}/>`
-    + xml.slice(anchor.index)
+  return (
+    xml.slice(0, anchor.index) +
+    `<sheetFormatPr defaultRowHeight="15"${attributes}/>` +
+    xml.slice(anchor.index)
+  )
 }
 
 function toRef(range: CellArea): string {
-  return `${columnToLetters(range.startColumn)}${range.startRow + 1}`
-    + `:${columnToLetters(range.endColumn)}${range.endRow + 1}`
+  return (
+    `${columnToLetters(range.startColumn)}${range.startRow + 1}` +
+    `:${columnToLetters(range.endColumn)}${range.endRow + 1}`
+  )
 }
 
-function applyMergeOp(
-  xml: string,
-  op: Extract<StructuralOp, { range: CellArea }>,
-): string {
+function applyMergeOp(xml: string, op: Extract<StructuralOp, { range: CellArea }>): string {
   const ref = toRef(op.range)
   if (op.kind === 'unmerge-cells') {
-    const without = xml.replace(
-      new RegExp(`<mergeCell\\b[^>]*\\bref="${ref}"[^>]*/>`),
-      '',
-    )
+    const without = xml.replace(new RegExp(`<mergeCell\\b[^>]*\\bref="${ref}"[^>]*/>`), '')
     return refreshMergeCount(without)
   }
   const element = `<mergeCell ref="${ref}"/>`
@@ -143,45 +166,43 @@ function formatSize(size: number): string {
 /// something (a default-reset on a missing row is already the default).
 function applyRowAttributeOp(xml: string, op: AxisAttributeOp): string {
   const seen = new Set<number>()
-  let result = xml.replace(
-    /<row\b([^>]*?)(\/>|>)/g,
-    (full, attributes: string, close: string) => {
-      const rowNumber = /(?:^|\s)r="([0-9]+)"/.exec(attributes)?.[1]
-      if (rowNumber === undefined) return full
-      const rowIndex = Number(rowNumber) - 1
-      if (rowIndex < op.start || rowIndex > op.end) return full
-      seen.add(rowIndex)
-      let patched = attributes
-      if ('size' in op) {
-        patched = patched
-          .replace(/\s*ht="[^"]*"/, '')
-          .replace(/\s*customHeight="[^"]*"/, '')
-        if (op.size !== null) patched += ` ht="${formatSize(op.size)}" customHeight="1"`
-      } else if ('level' in op) {
-        patched = patched.replace(/\s*outlineLevel="[^"]*"/, '')
-        if (op.level > 0) patched += ` outlineLevel="${op.level}"`
-        if (op.collapsed !== undefined) {
-          patched = patched.replace(/\s*collapsed="[^"]*"/, '')
-          if (op.collapsed) patched += ' collapsed="1"'
-        }
-      } else {
-        patched = patched.replace(/\s*hidden="[^"]*"/, '')
-        if (op.hidden) patched += ' hidden="1"'
+  let result = xml.replace(/<row\b([^>]*?)(\/>|>)/g, (full, attributes: string, close: string) => {
+    const rowNumber = /(?:^|\s)r="([0-9]+)"/.exec(attributes)?.[1]
+    if (rowNumber === undefined) return full
+    const rowIndex = Number(rowNumber) - 1
+    if (rowIndex < op.start || rowIndex > op.end) return full
+    seen.add(rowIndex)
+    let patched = attributes
+    if ('size' in op) {
+      patched = patched.replace(/\s*ht="[^"]*"/, '').replace(/\s*customHeight="[^"]*"/, '')
+      if (op.size !== null) patched += ` ht="${formatSize(op.size)}" customHeight="1"`
+    } else if ('level' in op) {
+      patched = patched.replace(/\s*outlineLevel="[^"]*"/, '')
+      if (op.level > 0) patched += ` outlineLevel="${op.level}"`
+      if (op.collapsed !== undefined) {
+        patched = patched.replace(/\s*collapsed="[^"]*"/, '')
+        if (op.collapsed) patched += ' collapsed="1"'
       }
-      return `<row${patched}${close}`
-    },
-  )
-  const setsSomething = 'size' in op
-    ? op.size !== null
-    : 'level' in op
-      ? op.level > 0 || op.collapsed === true
-      : op.hidden
+    } else {
+      patched = patched.replace(/\s*hidden="[^"]*"/, '')
+      if (op.hidden) patched += ' hidden="1"'
+    }
+    return `<row${patched}${close}`
+  })
+  const setsSomething =
+    'size' in op
+      ? op.size !== null
+      : 'level' in op
+        ? op.level > 0 || op.collapsed === true
+        : op.hidden
   if (!setsSomething) return result
-  const newAttributes = 'size' in op
-    ? ` ht="${formatSize(op.size ?? 0)}" customHeight="1"`
-    : 'level' in op
-      ? (op.level > 0 ? ` outlineLevel="${op.level}"` : '') + (op.collapsed ? ' collapsed="1"' : '')
-      : ' hidden="1"'
+  const newAttributes =
+    'size' in op
+      ? ` ht="${formatSize(op.size ?? 0)}" customHeight="1"`
+      : 'level' in op
+        ? (op.level > 0 ? ` outlineLevel="${op.level}"` : '') +
+          (op.collapsed ? ' collapsed="1"' : '')
+        : ' hidden="1"'
   for (let rowIndex = op.start; rowIndex <= op.end; rowIndex += 1) {
     if (seen.has(rowIndex)) continue
     result = insertEmptyRow(result, rowIndex + 1, newAttributes)
@@ -266,7 +287,8 @@ function applyColAttributeOp(xml: string, op: AxisAttributeOp): string {
       result.push(col)
       continue
     }
-    if (col.min < op.start) result.push({ min: col.min, max: op.start - 1, attrs: new Map(col.attrs) })
+    if (col.min < op.start)
+      result.push({ min: col.min, max: op.start - 1, attrs: new Map(col.attrs) })
     result.push({
       min: Math.max(col.min, op.start),
       max: Math.min(col.max, op.end),
@@ -276,11 +298,12 @@ function applyColAttributeOp(xml: string, op: AxisAttributeOp): string {
   }
   // Span parts no existing <col> covered get an element carrying only the
   // change (unless the change is a reset back to the default).
-  const setsSomething = 'size' in op
-    ? op.size !== null
-    : 'level' in op
-      ? op.level > 0 || op.collapsed === true
-      : op.hidden
+  const setsSomething =
+    'size' in op
+      ? op.size !== null
+      : 'level' in op
+        ? op.level > 0 || op.collapsed === true
+        : op.hidden
   if (setsSomething) {
     const covered = result
       .filter((col) => col.max >= op.start && col.min <= op.end)
@@ -302,9 +325,7 @@ function applyColAttributeOp(xml: string, op: AxisAttributeOp): string {
     .sort((left, right) => left.min - right.min)
   const serialized = kept
     .map((col) => {
-      const attributes = [...col.attrs]
-        .map(([name, value]) => ` ${name}="${value}"`)
-        .join('')
+      const attributes = [...col.attrs].map(([name, value]) => ` ${name}="${value}"`).join('')
       return `<col min="${col.min + 1}" max="${col.max + 1}"${attributes}/>`
     })
     .join('')
@@ -320,17 +341,14 @@ function applyColAttributeOp(xml: string, op: AxisAttributeOp): string {
 }
 
 function refreshMergeCount(xml: string): string {
-  return xml.replace(
-    /<mergeCells\b[^>]*>([\s\S]*?)<\/mergeCells>/,
-    (full, inner: string) => {
-      const count = (inner.match(/<mergeCell\b/g) ?? []).length
-      if (count === 0) return ''
-      return full.replace(
-        /(<mergeCells\b[^>]*\bcount=")[0-9]+(")/,
-        (_m, prefix: string, suffix: string) => `${prefix}${count}${suffix}`,
-      )
-    },
-  )
+  return xml.replace(/<mergeCells\b[^>]*>([\s\S]*?)<\/mergeCells>/, (full, inner: string) => {
+    const count = (inner.match(/<mergeCell\b/g) ?? []).length
+    if (count === 0) return ''
+    return full.replace(
+      /(<mergeCells\b[^>]*\bcount=")[0-9]+(")/,
+      (_m, prefix: string, suffix: string) => `${prefix}${count}${suffix}`,
+    )
+  })
 }
 
 /// Rewrites references to the edited sheet inside another sheet's formulas
@@ -408,10 +426,7 @@ function rowColumnOps(ops: readonly StructuralOp[]): RowColumnOp[] {
 /// the same op stream. Markers inside a deleted span clamp to its start (with
 /// a zeroed offset) — objects are never dropped, only compressed.
 /// absoluteAnchor is EMU-positioned and unaffected.
-export function shiftDrawingAnchors(
-  drawingXml: string,
-  ops: readonly StructuralOp[],
-): string {
+export function shiftDrawingAnchors(drawingXml: string, ops: readonly StructuralOp[]): string {
   let xml = drawingXml
   for (const op of rowColumnOps(ops)) {
     const axis: Axis = op.kind === 'insert-rows' || op.kind === 'remove-rows' ? 'row' : 'column'
@@ -442,10 +457,7 @@ export function shiftDrawingAnchors(
   return xml
 }
 
-function moveAnchorMark(
-  position: number,
-  shift: Shift,
-): { position: number; clamped: boolean } {
+function moveAnchorMark(position: number, shift: Shift): { position: number; clamped: boolean } {
   if (shift.deleted) {
     if (position > shift.deleted.end) return { position: position + shift.delta, clamped: false }
     if (position >= shift.deleted.start) return { position: shift.deleted.start, clamped: true }
@@ -468,9 +480,7 @@ export function shiftTablePart(tableXml: string, ops: readonly StructuralOp[]): 
     const table = parseTablePart(xml)
     if ('range' in op) {
       if (op.kind === 'merge-cells' && areasOverlap(op.range, table)) {
-        throw new StructuralShiftError(
-          `Merging cells over table "${table.name}" is not supported.`,
-        )
+        throw new StructuralShiftError(`Merging cells over table "${table.name}" is not supported.`)
       }
       continue
     }
@@ -520,29 +530,34 @@ function spansOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number
 }
 
 function areasOverlap(a: CellArea, b: CellArea): boolean {
-  return spansOverlap(a.startRow, a.endRow, b.startRow, b.endRow)
-    && spansOverlap(a.startColumn, a.endColumn, b.startColumn, b.endColumn)
+  return (
+    spansOverlap(a.startRow, a.endRow, b.startRow, b.endRow) &&
+    spansOverlap(a.startColumn, a.endColumn, b.startColumn, b.endColumn)
+  )
 }
 
 function assertTableRowShiftSupported(table: TablePartArea, shift: Shift): void {
   if (!shift.deleted) return
   const { start, end } = shift.deleted
-  if (table.headerRows > 0
-    && spansOverlap(start, end, table.startRow, table.startRow + table.headerRows - 1)) {
+  if (
+    table.headerRows > 0 &&
+    spansOverlap(start, end, table.startRow, table.startRow + table.headerRows - 1)
+  ) {
     throw new StructuralShiftError(
       `Deleting the header row of table "${table.name}" is not supported.`,
     )
   }
-  if (table.totalsRows > 0
-    && spansOverlap(start, end, table.endRow - table.totalsRows + 1, table.endRow)) {
+  if (
+    table.totalsRows > 0 &&
+    spansOverlap(start, end, table.endRow - table.totalsRows + 1, table.endRow)
+  ) {
     throw new StructuralShiftError(
       `Deleting the totals row of table "${table.name}" is not supported.`,
     )
   }
   const moved = moveRange(table.startRow, table.endRow, shift)
-  const dataRows = moved === null
-    ? 0
-    : moved.end - moved.start + 1 - table.headerRows - table.totalsRows
+  const dataRows =
+    moved === null ? 0 : moved.end - moved.start + 1 - table.headerRows - table.totalsRows
   if (dataRows < 1) {
     throw new StructuralShiftError(
       `Deleting these rows would leave table "${table.name}" without data rows — not supported.`,
@@ -684,7 +699,9 @@ function transformFormulas(xml: string, sheetName: string, shift: Shift, axis: A
         (_m, prefix: string, ref: string, suffix: string) => {
           const moved = moveRefRange(ref, shift, axis)
           if (moved === null) {
-            throw new StructuralShiftError('Deletion would remove a shared formula anchor — aborted.')
+            throw new StructuralShiftError(
+              'Deletion would remove a shared formula anchor — aborted.',
+            )
           }
           return `${prefix}${moved}${suffix}`
         },
@@ -703,13 +720,10 @@ function transformFormulas(xml: string, sheetName: string, shift: Shift, axis: A
 /// Shifts merges and range-scoped feature elements. Elements whose every
 /// range is deleted are removed outright.
 function transformRangedFeatures(xml: string, shift: Shift, axis: Axis): string {
-  let result = xml.replace(
-    /<mergeCell\b[^>]*\bref="([^"]+)"[^>]*\/>/g,
-    (full, ref: string) => {
-      const moved = moveRefRange(ref, shift, axis)
-      return moved === null ? '' : full.replace(/ref="[^"]+"/, () => `ref="${moved}"`)
-    },
-  )
+  let result = xml.replace(/<mergeCell\b[^>]*\bref="([^"]+)"[^>]*\/>/g, (full, ref: string) => {
+    const moved = moveRefRange(ref, shift, axis)
+    return moved === null ? '' : full.replace(/ref="[^"]+"/, () => `ref="${moved}"`)
+  })
   result = result.replace(
     /<mergeCells\b[^>]*>([\s\S]*?)<\/mergeCells>|<mergeCells\b[^>]*\/>/g,
     (full, inner: string | undefined) => {
@@ -771,9 +785,10 @@ function moveRefRange(ref: string, shift: Shift, axis: Axis): string | null {
   }
   const end = parseA1(parts[1] ?? '')
   if (!end) return ref
-  const moved = axis === 'row'
-    ? moveRange(start.row, end.row, shift)
-    : moveRange(start.column, end.column, shift)
+  const moved =
+    axis === 'row'
+      ? moveRange(start.row, end.row, shift)
+      : moveRange(start.column, end.column, shift)
   if (moved === null) return null
   return axis === 'row'
     ? `${columnToLetters(start.column)}${moved.start + 1}:${columnToLetters(end.column)}${moved.end + 1}`
@@ -785,11 +800,11 @@ function moveRefRange(ref: string, shift: Shift, axis: Axis): string | null {
 // from being misread as references.
 export const FORMULA_REFERENCE_PATTERN = new RegExp(
   "(^|[^A-Za-z0-9_.$'!:])" +
-  "(?:('(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_.]*)!)?" +
-  '(\\$?[A-Z]{1,3}\\$?[0-9]+(?::\\$?[A-Z]{1,3}\\$?[0-9]+)?' +
-  '|\\$?[A-Z]{1,3}:\\$?[A-Z]{1,3}' +
-  '|\\$?[0-9]+:\\$?[0-9]+)' +
-  '(?![0-9A-Za-z_(])',
+    "(?:('(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_.]*)!)?" +
+    '(\\$?[A-Z]{1,3}\\$?[0-9]+(?::\\$?[A-Z]{1,3}\\$?[0-9]+)?' +
+    '|\\$?[A-Z]{1,3}:\\$?[A-Z]{1,3}' +
+    '|\\$?[0-9]+:\\$?[0-9]+)' +
+    '(?![0-9A-Za-z_(])',
   'g',
 )
 
@@ -809,9 +824,11 @@ export function shiftFormulaText(
   // literal content in the odd-indexed segments.
   return formula
     .split('"')
-    .map((segment, index) => index % 2 === 1
-      ? segment
-      : shiftFormulaSegment(segment, sheetName, shift, axis, qualifiedOnly))
+    .map((segment, index) =>
+      index % 2 === 1
+        ? segment
+        : shiftFormulaSegment(segment, sheetName, shift, axis, qualifiedOnly),
+    )
     .join('"')
 }
 
@@ -858,8 +875,7 @@ function shiftReferenceToken(token: string, shift: Shift, axis: Axis): string | 
     return `${wholeRow[1]}${moved.start + 1}:${wholeRow[3]}${moved.end + 1}`
   }
   const parts = token.split(':')
-  const cells = parts.map((part) =>
-    /^(\$?)([A-Z]{1,3})(\$?)([0-9]+)$/.exec(part))
+  const cells = parts.map((part) => /^(\$?)([A-Z]{1,3})(\$?)([0-9]+)$/.exec(part))
   if (cells.some((cell) => cell === null)) return token
   const parsed = cells.map((cell) => ({
     colDollar: cell?.[1] ?? '',
@@ -878,16 +894,19 @@ function shiftReferenceToken(token: string, shift: Shift, axis: Axis): string | 
   }
   const second = parsed[1]
   if (!second) return token
-  const moved = axis === 'row'
-    ? moveRange(first.row, second.row, shift)
-    : moveRange(first.column, second.column, shift)
+  const moved =
+    axis === 'row'
+      ? moveRange(first.row, second.row, shift)
+      : moveRange(first.column, second.column, shift)
   if (moved === null) return null
   const startRow = axis === 'row' ? moved.start : first.row
   const endRow = axis === 'row' ? moved.end : second.row
   const startColumn = axis === 'column' ? moved.start : first.column
   const endColumn = axis === 'column' ? moved.end : second.column
-  return `${first.colDollar}${columnToLetters(startColumn)}${first.rowDollar}${startRow + 1}`
-    + `:${second.colDollar}${columnToLetters(endColumn)}${second.rowDollar}${endRow + 1}`
+  return (
+    `${first.colDollar}${columnToLetters(startColumn)}${first.rowDollar}${startRow + 1}` +
+    `:${second.colDollar}${columnToLetters(endColumn)}${second.rowDollar}${endRow + 1}`
+  )
 }
 
 export function qualifierMatches(qualifier: string, sheetName: string): boolean {

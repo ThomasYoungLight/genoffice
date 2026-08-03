@@ -75,9 +75,7 @@ export function fixSequenceNodes(
 ): SequenceEntry[] | undefined | null {
   if (!nodes) return nodes
   const body = formulaBody(formula)
-  const reassembled = nodes
-    .map((node) => (typeof node === 'string' ? node : node.token))
-    .join('')
+  const reassembled = nodes.map((node) => (typeof node === 'string' ? node : node.token)).join('')
   if (reassembled === body) return nodes
   const map = buildSlotMap(body)
   let changed = false

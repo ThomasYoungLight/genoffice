@@ -22,9 +22,7 @@ describe('clipboard TSV serialization (#187)', () => {
 
   it('assembles rows with empty fields for missing cells (no column drift)', () => {
     const cells: Record<string, { v: string }> = { '0:0': { v: 'a' }, '0:2': { v: 'c' } }
-    const plain = plainTextFromCells([0, 1], [0, 1, 2], (row, column) =>
-      cells[`${row}:${column}`],
-    )
+    const plain = plainTextFromCells([0, 1], [0, 1, 2], (row, column) => cells[`${row}:${column}`])
     expect(plain).toBe('a\t\tc\n\t\t')
   })
 })

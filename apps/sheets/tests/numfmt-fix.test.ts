@@ -34,7 +34,11 @@ describe('fixFormattedValue — _x padding and text section (#186)', () => {
   it('applies the 4th (text) section to string cells', () => {
     expect(fixFormattedValue('#,##0.0_);(#,##0.0);0.0_);@_)', 'abc', 'abc')).toBe(`abc${NBSP}`)
     expect(
-      fixFormattedValue('#,##0.0_);(#,##0.0);0.0_);@_)', 'Training The Street', 'Training The Street'),
+      fixFormattedValue(
+        '#,##0.0_);(#,##0.0);0.0_);@_)',
+        'Training The Street',
+        'Training The Street',
+      ),
     ).toBe(`Training The Street${NBSP}`)
   })
 

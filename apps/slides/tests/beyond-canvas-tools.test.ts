@@ -237,3 +237,117 @@ describe('read_slide', () => {
     expect(r.output).toContain('(none)')
   })
 })
+
+describe('manage_sections', () => {
+  const SECTIONS = [
+    { id: '{A}', name: 'Intro', slideIndices: [0] },
+    { id: '{B}', name: 'Detail', slideIndices: [1] },
+  ]
+
+  beforeEach(() => {
+    Object.assign((window as any).slidesApi, {
+      getSections: vi.fn(async () => SECTIONS),
+      addSection: vi.fn(async () => SECTIONS),
+      renameSection: vi.fn(async () => SECTIONS),
+      removeSection: vi.fn(async () => SECTIONS),
+      moveSection: vi.fn(async () => ({ slides: DECK, sections: SECTIONS })),
+    })
+  })
+
+  it('lists sections with the ids a later call needs', async () => {
+    const r = await run('manage_sections', { action: 'list' })
+    expect(r.mutated).toBe(false)
+    expect(r.output).toContain('{A}')
+    expect(r.output).toContain('pages 1')
+  })
+
+  it('adds a section at a page', async () => {
+    const r = await run('manage_sections', { action: 'add', atSlideIndex: 1, name: 'Detail' })
+    expect(r.mutated).toBe(true)
+    expect((window as any).slidesApi.addSection).toHaveBeenCalledWith({
+      atSlideIndex: 1,
+      name: 'Detail',
+    })
+  })
+
+  it('refuses an unnamed section and an out-of-range page', async () => {
+    expect(
+      (await run('manage_sections', { action: 'add', atSlideIndex: 0, name: '  ' })).isError,
+    ).toBe(true)
+    expect(
+      (await run('manage_sections', { action: 'add', atSlideIndex: 9, name: 'X' })).isError,
+    ).toBe(true)
+    expect((window as any).slidesApi.addSection).not.toHaveBeenCalled()
+  })
+
+  it('rejects rename and remove without an id, rather than guessing one', async () => {
+    expect((await run('manage_sections', { action: 'rename', name: 'X' })).isError).toBe(true)
+    expect((await run('manage_sections', { action: 'remove' })).isError).toBe(true)
+  })
+
+  it('applies the reordered deck when a section moves', async () => {
+    const r = await run('manage_sections', { action: 'move', id: '{B}', dir: 'up' })
+    expect(r.mutated).toBe(true)
+    expect((window as any).slidesApi.moveSection).toHaveBeenCalledWith({ id: '{B}', dir: 'up' })
+  })
+
+  it('says so on an unknown action instead of doing nothing quietly', async () => {
+    const r = await run('manage_sections', { action: 'reticulate' })
+    expect(r.isError).toBe(true)
+    expect(r.output).toContain('reticulate')
+  })
+})
+
+describe('manage_comments', () => {
+  const COMMENTS = [
+    {
+      authorId: 1,
+      author: 'Sam',
+      initials: 'S',
+      dt: '2026-01-01T00:00:00Z',
+      idx: 1,
+      text: 'Check this number',
+    },
+  ]
+
+  beforeEach(() => {
+    Object.assign((window as any).slidesApi, {
+      getComments: vi.fn(async () => COMMENTS),
+      addComment: vi.fn(async () => COMMENTS),
+      deleteComment: vi.fn(async () => COMMENTS),
+    })
+  })
+
+  it('lists comments with the keys removal needs', async () => {
+    const r = await run('manage_comments', { action: 'list', slideIndex: 0 })
+    expect(r.output).toContain('authorId=1')
+    expect(r.output).toContain('idx=1')
+    expect(r.output).toContain('Check this number')
+    expect(r.mutated).toBe(false)
+  })
+
+  it('reports an empty page plainly', async () => {
+    ;(window as any).slidesApi.getComments = vi.fn(async () => [])
+    const r = await run('manage_comments', { action: 'list', slideIndex: 1 })
+    expect(r.output).toContain('no comments')
+  })
+
+  it('adds a comment', async () => {
+    const r = await run('manage_comments', { action: 'add', slideIndex: 0, text: 'Needs a source' })
+    expect(r.mutated).toBe(true)
+    expect((window as any).slidesApi.addComment).toHaveBeenCalledWith({
+      slideIndex: 0,
+      text: 'Needs a source',
+    })
+  })
+
+  it('will not add an empty comment or remove without both keys', async () => {
+    expect(
+      (await run('manage_comments', { action: 'add', slideIndex: 0, text: ' ' })).isError,
+    ).toBe(true)
+    expect(
+      (await run('manage_comments', { action: 'remove', slideIndex: 0, authorId: 1 })).isError,
+    ).toBe(true)
+    expect((window as any).slidesApi.deleteComment).not.toHaveBeenCalled()
+  })
+})

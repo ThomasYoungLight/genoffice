@@ -27,8 +27,13 @@ All operations below are **layout-class**: they can share a batch with content/f
 - `{kind:"duplicate", unique?, format}` — highlights duplicate values by default; unique:true highlights unique values instead
 - `{kind:"top10", rank:10, percent?, bottom?, format}`
 - `{kind:"formula", formula:"=B2>100", format}` — formula starts with =, written with relative references anchored at the range's top-left cell
+- `{kind:"aboveAverage", below?, orEqual?, format}` — compares against the average of the range itself; below:true flags the underperformers
+- `{kind:"timePeriod", period:"today"|"yesterday"|"tomorrow"|"last7Days"|"thisWeek"|"lastWeek"|"nextWeek"|"thisMonth"|"lastMonth"|"nextMonth", format}` — for date columns; re-evaluates as time passes, unlike a formula against a fixed date
 - `{kind:"colorScale", minColor:"#63BE7B", midColor?, maxColor:"#F8696B"}` — color scale (no format field)
 - `{kind:"dataBar", color?}` — data bar (no format field)
+- `{kind:"iconSet", icons:"3Arrows"|"3ArrowsGray"|"3Flags"|"3TrafficLights1"|"3TrafficLights2"|"3Signs"|"3Symbols"|"3Symbols2"|"4Arrows"|"4ArrowsGray"|"4RedToBlack"|"4Rating"|"4TrafficLights"|"5Arrows"|"5ArrowsGray"|"5Quarters"|"5Rating", reverse?, showValue?}` — bands are evenly spaced percentiles; the leading digit is the icon count; reverse:true puts the first icon on the highest band (use it when low is good, e.g. cost or defect counts). No format field.
+
+Pick by what the reader has to do with the column: a **color scale** to see the shape of a distribution, a **data bar** to compare magnitudes, an **icon set** to sort into pass/watch/fail, and a **rule with a format** to make specific rows stand out. Do not stack more than one on the same range.
 
 format: `{fillColor?, fontColor?, bold?, italic?}` with at least one property. Highlight colors follow the low-saturation principle (light background, dark text), e.g. red #FFC7CE/#9C0006, green #C6EFCE/#006100, yellow #FFEB9C/#9C6500.
 

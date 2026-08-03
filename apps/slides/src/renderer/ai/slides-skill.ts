@@ -15,6 +15,8 @@ import type {
   AnimTrigger,
   EditParagraph,
   LinkTargetOp,
+  SectionInfo,
+  SlideComment,
   TransitionKind,
 } from '../../shared/ipc'
 import { generateDeckLocally, type LocalDeckDeps } from './deck-local'
@@ -1254,6 +1256,38 @@ const TOOLS: AgentToolDef[] = [
         },
       },
       required: ['slideIndex', 'items'],
+    },
+  },
+  {
+    name: 'manage_sections',
+    description:
+      'Group pages into named sections, the way a long deck is divided for navigation and for presenting one part of it. action=list returns the current sections with the pages in each; add starts a section at a page (it runs to the next section or the end); rename and remove take an id from list — removing a section keeps its pages.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['list', 'add', 'rename', 'remove', 'move'] },
+        atSlideIndex: { type: 'integer', description: 'add: the page the section starts at' },
+        name: { type: 'string', description: 'add / rename: section name' },
+        id: { type: 'string', description: 'rename / remove / move: id from action=list' },
+        dir: { type: 'string', enum: ['up', 'down'], description: 'move: direction' },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'manage_comments',
+    description:
+      "Read or leave review comments on a page. Use it to answer questions about the review state, or to leave a note for a colleague — not to talk to the user, who is reading this conversation. action=list returns the comments on a page; add leaves one under the app user's name; remove takes authorId and idx from list.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['list', 'add', 'remove'] },
+        slideIndex: { type: 'integer' },
+        text: { type: 'string', description: 'add: the comment body' },
+        authorId: { type: 'integer', description: 'remove: from action=list' },
+        idx: { type: 'integer', description: 'remove: from action=list' },
+      },
+      required: ['action', 'slideIndex'],
     },
   },
   {
@@ -3606,6 +3640,87 @@ async function executeTool(
         mutated: true,
         summary: t('aiSumSetAnimation', { n: idx + 1 }),
       }
+    }
+
+    case 'manage_sections': {
+      const action = String(call.input.action ?? '')
+      const describe = (list: SectionInfo[]) =>
+        list.length
+          ? list
+              .map(
+                (s) =>
+                  `${s.name} (id=${s.id}, pages ${s.slideIndices.map((i) => i + 1).join(', ') || 'none'})`,
+              )
+              .join('\n')
+          : 'The deck has no sections.'
+      if (action === 'list') {
+        const list = await window.slidesApi.getSections()
+        return { output: describe(list), mutated: false, summary: t('aiSumSections') }
+      }
+      let updated: SectionInfo[] | null = null
+      if (action === 'add') {
+        const at = Number(call.input.atSlideIndex)
+        const name = String(call.input.name ?? '').trim()
+        if (!slides[at])
+          return fail(t('aiFailSection'), `atSlideIndex out of range (0-${slides.length - 1})`)
+        if (!name) return fail(t('aiFailSection'), 'A section needs a name')
+        updated = await window.slidesApi.addSection({ atSlideIndex: at, name })
+      } else if (action === 'rename') {
+        const id = String(call.input.id ?? '')
+        const name = String(call.input.name ?? '').trim()
+        if (!id || !name) return fail(t('aiFailSection'), 'rename needs both id and name')
+        updated = await window.slidesApi.renameSection({ id, name })
+      } else if (action === 'remove') {
+        const id = String(call.input.id ?? '')
+        if (!id) return fail(t('aiFailSection'), 'remove needs the section id')
+        updated = await window.slidesApi.removeSection({ id })
+      } else if (action === 'move') {
+        const id = String(call.input.id ?? '')
+        const dir = call.input.dir === 'down' ? 'down' : 'up'
+        if (!id) return fail(t('aiFailSection'), 'move needs the section id')
+        const r = await window.slidesApi.moveSection({ id, dir })
+        // moving a section reorders slides, so the whole deck comes back
+        if (r && 'slides' in r && Array.isArray(r.slides)) access.applyDeck(r.slides)
+        updated = r && 'sections' in r ? r.sections : null
+      } else {
+        return fail(t('aiFailSection'), `Unknown action "${action}"`)
+      }
+      if (!updated) return fail(t('aiFailSection'), 'The section change was rejected')
+      return { output: describe(updated), mutated: true, summary: t('aiSumSections') }
+    }
+
+    case 'manage_comments': {
+      const action = String(call.input.action ?? '')
+      const idx = Number(call.input.slideIndex)
+      if (!slides[idx])
+        return fail(t('aiFailComment'), `slideIndex out of range (0-${slides.length - 1})`)
+      const render = (list: SlideComment[]) =>
+        list.length
+          ? list
+              .map((c) => `[authorId=${c.authorId} idx=${c.idx}] ${c.author}: ${c.text}`)
+              .join('\n')
+          : `Page ${idx + 1} has no comments.`
+      if (action === 'list') {
+        const list = await window.slidesApi.getComments(idx)
+        return { output: render(list), mutated: false, summary: t('aiSumComment', { n: idx + 1 }) }
+      }
+      if (action === 'add') {
+        const text = String(call.input.text ?? '').trim()
+        if (!text) return fail(t('aiFailComment'), 'A comment needs text')
+        const list = await window.slidesApi.addComment({ slideIndex: idx, text })
+        if (!list) return fail(t('aiFailComment'), 'Could not add the comment')
+        return { output: render(list), mutated: true, summary: t('aiSumComment', { n: idx + 1 }) }
+      }
+      if (action === 'remove') {
+        const authorId = Number(call.input.authorId)
+        const cIdx = Number(call.input.idx)
+        if (!Number.isFinite(authorId) || !Number.isFinite(cIdx))
+          return fail(t('aiFailComment'), 'remove needs authorId and idx from action=list')
+        const list = await window.slidesApi.deleteComment({ slideIndex: idx, authorId, idx: cIdx })
+        if (!list) return fail(t('aiFailComment'), 'No comment with that authorId and idx')
+        return { output: render(list), mutated: true, summary: t('aiSumComment', { n: idx + 1 }) }
+      }
+      return fail(t('aiFailComment'), `Unknown action "${action}"`)
     }
 
     case 'delete_element': {

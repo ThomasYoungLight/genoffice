@@ -458,6 +458,31 @@ const cfFormatSchema = z
     message: 'The rule format must set at least one property.',
   })
 
+/**
+ * Icon sets base OOXML knows. The gateway refuses to save anything outside
+ * this list (it would be dropped silently on reopen), so the DSL does not
+ * offer it either — the icon count is the leading digit of the name.
+ */
+export const ICON_SET_NAMES = [
+  '3Arrows',
+  '3ArrowsGray',
+  '3Flags',
+  '3TrafficLights1',
+  '3TrafficLights2',
+  '3Signs',
+  '3Symbols',
+  '3Symbols2',
+  '4Arrows',
+  '4ArrowsGray',
+  '4RedToBlack',
+  '4Rating',
+  '4TrafficLights',
+  '5Arrows',
+  '5ArrowsGray',
+  '5Quarters',
+  '5Rating',
+] as const
+
 export const cfRuleSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('number'),
@@ -507,6 +532,30 @@ export const cfRuleSchema = z.discriminatedUnion('kind', [
     format: cfFormatSchema,
   }),
   z.object({
+    kind: z.literal('aboveAverage'),
+    /** true highlights values below the range average instead of above it */
+    below: z.boolean().optional(),
+    /** include values exactly equal to the average */
+    orEqual: z.boolean().optional(),
+    format: cfFormatSchema,
+  }),
+  z.object({
+    kind: z.literal('timePeriod'),
+    period: z.enum([
+      'today',
+      'yesterday',
+      'tomorrow',
+      'last7Days',
+      'thisWeek',
+      'lastWeek',
+      'nextWeek',
+      'thisMonth',
+      'lastMonth',
+      'nextMonth',
+    ]),
+    format: cfFormatSchema,
+  }),
+  z.object({
     kind: z.literal('colorScale'),
     minColor: hexColorSchema,
     midColor: hexColorSchema.optional(),
@@ -515,6 +564,18 @@ export const cfRuleSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('dataBar'),
     color: hexColorSchema.optional(),
+  }),
+  z.object({
+    kind: z.literal('iconSet'),
+    /**
+     * Only the sets base OOXML defines, so the rule survives a save — see
+     * OOXML_ICON_SETS in the xlsx gateway, which rejects anything else.
+     */
+    icons: z.enum(ICON_SET_NAMES),
+    /** first icon on the highest band instead of the lowest */
+    reverse: z.boolean().optional(),
+    /** show the cell value beside the icon (default true) */
+    showValue: z.boolean().optional(),
   }),
 ])
 
@@ -1506,10 +1567,16 @@ function cfRuleLabel(rule: CfRule): string {
       return `${rule.bottom ? 'bottom' : 'top'} ${rule.rank}${rule.percent ? '%' : ''}`
     case 'formula':
       return rule.formula
+    case 'aboveAverage':
+      return `${rule.below ? 'below' : 'above'}${rule.orEqual ? ' or equal to' : ''} average`
+    case 'timePeriod':
+      return `date is ${rule.period}`
     case 'colorScale':
       return `color scale ${rule.minColor} → ${rule.maxColor}`
     case 'dataBar':
       return `data bar${rule.color ? ` ${rule.color}` : ''}`
+    case 'iconSet':
+      return `icon set ${rule.icons}${rule.reverse ? ' (reversed)' : ''}`
   }
 }
 

@@ -6,7 +6,12 @@
  * page-layout view), everything lands in the saved file.
  */
 import { columnLabel } from '../domain/cell-address'
-import { isSheetRemoved, journalSize, recordPageSetup, type PageSetupJournalState } from './edit-journal'
+import {
+  isSheetRemoved,
+  journalSize,
+  recordPageSetup,
+  type PageSetupJournalState,
+} from './edit-journal'
 import type { HeaderFooterResult } from './HeaderFooterDialog'
 import { t } from './i18n/locale'
 import { buildSheetPrintPayload, type PrintWorksheet } from './print-html'

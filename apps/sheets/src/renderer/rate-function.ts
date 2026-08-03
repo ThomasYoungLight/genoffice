@@ -125,10 +125,7 @@ export function createRateExecutor(): BaseFunction | null {
       if (!(result.isError?.() && result.getValue() === ErrorType.NUM)) return result
       const root = solveRateByBisection(nper, pmt, pv, fv, type)
       if (root === null) return result
-      return NumberValueObject.create(
-        root,
-        rowIndex === 0 && columnIndex === 0 ? '0%' : undefined,
-      )
+      return NumberValueObject.create(root, rowIndex === 0 && columnIndex === 0 ? '0%' : undefined)
     }
   }
   return new RateWithBisection(FUNCTION_NAMES_FINANCIAL.RATE)

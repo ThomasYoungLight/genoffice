@@ -21,8 +21,14 @@ export interface DvWireRule {
 
 const DV_TYPES = new Set(['whole', 'decimal', 'list', 'date', 'time', 'textLength', 'custom'])
 const DV_OPERATORS = new Set([
-  'between', 'notBetween', 'equal', 'notEqual',
-  'greaterThan', 'greaterThanOrEqual', 'lessThan', 'lessThanOrEqual',
+  'between',
+  'notBetween',
+  'equal',
+  'notEqual',
+  'greaterThan',
+  'greaterThanOrEqual',
+  'lessThan',
+  'lessThanOrEqual',
 ])
 /// Univer DataValidationErrorStyle: INFO=0, STOP=1 (OOXML default), WARNING=2.
 const DV_ERROR_STYLE_NAMES: Record<number, string | undefined> = {
@@ -31,14 +37,11 @@ const DV_ERROR_STYLE_NAMES: Record<number, string | undefined> = {
   2: 'warning',
 }
 
-export function applyDvRules(
-  worksheetXml: string,
-  rules: readonly DvWireRule[],
-): string {
+export function applyDvRules(worksheetXml: string, rules: readonly DvWireRule[]): string {
   if (/<x14:dataValidation\b/.test(worksheetXml)) {
     throw new DvEditError(
-      'This sheet has extended (x14) data validation — editing its rules is not '
-      + 'supported yet.',
+      'This sheet has extended (x14) data validation — editing its rules is not ' +
+        'supported yet.',
     )
   }
   const xml = worksheetXml.replace(
@@ -50,8 +53,9 @@ export function applyDvRules(
   const body = rules.map(serializeRule).join('')
   const section = `<dataValidations count="${rules.length}">${body}</dataValidations>`
   const anchor =
-    /<hyperlinks\b|<printOptions\b|<pageMargins\b|<pageSetup\b|<headerFooter\b|<rowBreaks\b|<colBreaks\b|<drawing\b|<legacyDrawing\b|<picture\b|<oleObjects\b|<tableParts\b|<extLst\b/
-      .exec(xml)
+    /<hyperlinks\b|<printOptions\b|<pageMargins\b|<pageSetup\b|<headerFooter\b|<rowBreaks\b|<colBreaks\b|<drawing\b|<legacyDrawing\b|<picture\b|<oleObjects\b|<tableParts\b|<extLst\b/.exec(
+      xml,
+    )
   if (anchor) {
     return xml.slice(0, anchor.index) + section + xml.slice(anchor.index)
   }
@@ -68,8 +72,8 @@ function serializeRule(wireRule: DvWireRule): string {
   const rawType = String(rule.type ?? '')
   if (rawType === 'checkbox' || rawType === 'listMultiple') {
     throw new DvEditError(
-      `${rawType === 'checkbox' ? 'Checkbox' : 'Multi-select list'} rules are `
-      + 'Univer-only and cannot be saved to xlsx — delete the rule before saving.',
+      `${rawType === 'checkbox' ? 'Checkbox' : 'Multi-select list'} rules are ` +
+        'Univer-only and cannot be saved to xlsx — delete the rule before saving.',
     )
   }
   // 'any' is the read-side mapping of OOXML type="none" (no constraint, just
@@ -130,8 +134,10 @@ function errorStyleName(value: unknown): string | undefined {
 function serializeFormulas(type: string | undefined, rule: Record<string, unknown>): string {
   const formula1 = formulaText(type, rule.formula1)
   const formula2 = formulaText(type, rule.formula2)
-  return (formula1 === undefined ? '' : `<formula1>${escapeXmlText(formula1)}</formula1>`)
-    + (formula2 === undefined ? '' : `<formula2>${escapeXmlText(formula2)}</formula2>`)
+  return (
+    (formula1 === undefined ? '' : `<formula1>${escapeXmlText(formula1)}</formula1>`) +
+    (formula2 === undefined ? '' : `<formula2>${escapeXmlText(formula2)}</formula2>`)
+  )
 }
 
 /// Inverse of the install-side formula transforms: list literals regain their
@@ -162,12 +168,13 @@ function formulaText(type: string | undefined, raw: unknown): string | undefined
 /// 1899-12-30). Plain numbers and references pass through untouched.
 function dateToSerial(text: string): number | undefined {
   const match =
-    /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T ](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/
-      .exec(text.trim())
+    /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T ](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/.exec(
+      text.trim(),
+    )
   if (!match) return undefined
   const [, year, month, day, hour, minute, second] = match
-  const days = (Date.UTC(Number(year), Number(month) - 1, Number(day))
-    - Date.UTC(1899, 11, 30)) / 86_400_000
+  const days =
+    (Date.UTC(Number(year), Number(month) - 1, Number(day)) - Date.UTC(1899, 11, 30)) / 86_400_000
   const seconds = Number(hour ?? 0) * 3600 + Number(minute ?? 0) * 60 + Number(second ?? 0)
   return seconds === 0 ? days : days + seconds / 86_400
 }

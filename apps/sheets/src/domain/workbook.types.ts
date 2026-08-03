@@ -1,4 +1,9 @@
-import type { BorderPatch, CellFormatPatch, LayoutOperation, StructuralOperation } from './workbook-dsl'
+import type {
+  BorderPatch,
+  CellFormatPatch,
+  LayoutOperation,
+  StructuralOperation,
+} from './workbook-dsl'
 import type { SheetVisual } from './chart-visual'
 
 export type CellScalar = string | number | boolean | null

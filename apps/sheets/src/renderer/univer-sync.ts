@@ -448,6 +448,15 @@ export function applyAiConditionalFormat(
     )
     return
   }
+  if (rule.kind === 'iconSet') {
+    worksheet.addConditionalFormattingRule(
+      builder
+        .setIconSet(iconSetConfig(rule) as Parameters<typeof builder.setIconSet>[0])
+        .setRanges(ranges)
+        .build(),
+    )
+    return
+  }
   let styled = buildAiHighlight(builder, rule)
   if (rule.format.fillColor !== undefined) styled = styled.setBackground(rule.format.fillColor)
   if (rule.format.fontColor !== undefined) styled = styled.setFontColor(rule.format.fontColor)
@@ -506,10 +515,53 @@ function buildAiHighlight(
         isPercent: rule.percent === true,
         value: rule.rank,
       })
+    case 'aboveAverage':
+      return builder.setAverage(
+        (rule.below
+          ? rule.orEqual
+            ? 'lessThanOrEqual'
+            : 'lessThan'
+          : rule.orEqual
+            ? 'greaterThanOrEqual'
+            : 'greaterThan') as Parameters<typeof builder.setAverage>[0],
+      )
+    case 'timePeriod':
+      return builder.whenDate(rule.period as Parameters<typeof builder.whenDate>[0])
     case 'formula':
       return builder.whenFormulaSatisfied(rule.formula)
   }
   throw new Error('Unsupported conditional-format rule.')
+}
+
+/**
+ * Icon-set rule → Univer config.
+ *
+ * The bands are evenly spaced percentiles, which is what Excel's own presets
+ * use and the only choice that needs no data-dependent input from the model.
+ * Icon ids run 0..n-1 in file order; `reverse` flips them, and those are the
+ * only two orders the gateway can save (see iconSetSaveable).
+ */
+function iconSetConfig(rule: {
+  icons: string
+  reverse?: boolean | undefined
+  showValue?: boolean | undefined
+}): {
+  iconConfigs: Array<Record<string, unknown>>
+  isShowValue: boolean
+} {
+  const count = Number(rule.icons[0]) || 3
+  const iconConfigs = Array.from({ length: count }, (_, band) => {
+    const id = rule.reverse ? count - 1 - band : band
+    // highest band first: Univer evaluates the list top-down
+    const threshold = Math.round((100 * (count - 1 - band)) / count)
+    return {
+      iconType: rule.icons,
+      iconId: String(id),
+      operator: band === count - 1 ? 'lessThanOrEqual' : 'greaterThanOrEqual',
+      value: { type: 'percent', value: threshold },
+    }
+  })
+  return { iconConfigs, isShowValue: rule.showValue !== false }
 }
 
 export function applyAiDataValidation(

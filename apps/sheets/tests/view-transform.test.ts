@@ -10,14 +10,25 @@ import {
   screenToFile,
 } from '../src/renderer/view-transform'
 
-const insertRows = (index: number, count = 1): StructuralOp =>
-  ({ kind: 'insert-rows', index, count })
-const removeRows = (index: number, count = 1): StructuralOp =>
-  ({ kind: 'remove-rows', index, count })
-const insertCols = (index: number, count = 1): StructuralOp =>
-  ({ kind: 'insert-cols', index, count })
-const merge = (): StructuralOp =>
-  ({ kind: 'merge-cells', range: { startRow: 0, endRow: 1, startColumn: 0, endColumn: 1 } })
+const insertRows = (index: number, count = 1): StructuralOp => ({
+  kind: 'insert-rows',
+  index,
+  count,
+})
+const removeRows = (index: number, count = 1): StructuralOp => ({
+  kind: 'remove-rows',
+  index,
+  count,
+})
+const insertCols = (index: number, count = 1): StructuralOp => ({
+  kind: 'insert-cols',
+  index,
+  count,
+})
+const merge = (): StructuralOp => ({
+  kind: 'merge-cells',
+  range: { startRow: 0, endRow: 1, startColumn: 0, endColumn: 1 },
+})
 
 describe('fileToScreen / screenToFile', () => {
   it('shifts positions across inserts and removals and stays inverse-consistent', () => {
@@ -53,8 +64,12 @@ describe('fileToScreen / screenToFile', () => {
 })
 
 describe('screenRangeToFileRange', () => {
-  const range = (startRow: number, endRow: number, startColumn = 0, endColumn = 5) =>
-    ({ startRow, endRow, startColumn, endColumn })
+  const range = (startRow: number, endRow: number, startColumn = 0, endColumn = 5) => ({
+    startRow,
+    endRow,
+    startColumn,
+    endColumn,
+  })
 
   it('translates a viewport past an insert back to file rows', () => {
     const ops = [insertRows(5, 2)]
@@ -87,7 +102,10 @@ describe('mapRangeResultToScreen', () => {
         { row: 1, column: 0, value: 'deleted row' },
         { row: 2, column: 1, value: 'shifted' },
       ],
-      rows: [{ row: 1, hidden: true }, { row: 2, height: 30, hidden: false }],
+      rows: [
+        { row: 1, hidden: true },
+        { row: 2, height: 30, hidden: false },
+      ],
       merges: [
         { startRow: 0, endRow: 1, startColumn: 0, endColumn: 1 },
         { startRow: 2, endRow: 3, startColumn: 0, endColumn: 0 },
