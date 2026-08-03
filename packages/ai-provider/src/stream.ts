@@ -1,6 +1,8 @@
 import type { AgentMessage, AgentToolCall, AgentToolDef } from '@genoffice/agent-core'
 import { httpBodyDetail } from './http-error'
-import { GENSPARK_LLM_BASE_URLS } from './providers'
+import { postWithQuirkRetry } from './openai-quirks'
+import { streamOpenAiResponses } from './openai-responses'
+import { resolveProviderWire } from './providers'
 import type { AiProviderConfig, AiProviderId } from './types'
 
 // ---- streaming (SSE line splitting shared by all providers) ----
@@ -357,16 +359,16 @@ export async function streamOpenAiCompatible(
   maxTokens: number,
   cb: StreamCallbacks,
 ): Promise<void> {
-  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    signal: cb.signal,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({
+  const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`
+  const response = await postWithQuirkRetry(
+    url,
+    `${url}|${config.model}`,
+    { Authorization: `Bearer ${config.apiKey}` },
+    (quirks) => ({
       model: config.model,
-      max_tokens: maxTokens,
+      ...(quirks.maxCompletionTokens
+        ? { max_completion_tokens: maxTokens }
+        : { max_tokens: maxTokens }),
       messages: openAiMessages(system, messages),
       ...(tools.length > 0
         ? {
@@ -376,10 +378,12 @@ export async function streamOpenAiCompatible(
             })),
           }
         : {}),
-      temperature: 0.3,
+      ...(quirks.noTemperature ? {} : { temperature: 0.3 }),
+      ...(quirks.noReasoning ? { reasoning_effort: 'none' } : {}),
       stream: true,
     }),
-  })
+    cb.signal,
+  )
   if (!response.ok || !response.body) {
     throw new Error(`HTTP ${response.status}: ${httpBodyDetail(await response.text())}`)
   }
@@ -431,11 +435,6 @@ export async function streamOpenAiCompatible(
   flushTools()
 }
 
-const OPENAI_COMPATIBLE_BASE_URLS: Partial<Record<AiProviderId, string>> = {
-  deepseek: 'https://api.deepseek.com/v1',
-  openai: 'https://api.openai.com/v1',
-}
-
 /** route a streaming, tool-calling-capable turn by provider id */
 export async function streamForProvider(
   provider: AiProviderId,
@@ -446,49 +445,17 @@ export async function streamForProvider(
   maxTokens: number,
   cb: StreamCallbacks,
 ): Promise<void> {
-  switch (provider) {
-    case 'genspark':
-      // The proxy exposes three protocol-specific endpoints; route by model id prefix: claude uses
-      // the Anthropic protocol (preserves image input fidelity), gemini uses Gemini, rest OpenAI-compatible
-      if (config.model.startsWith('claude')) {
-        return streamAnthropic(
-          config,
-          system,
-          messages,
-          tools,
-          maxTokens,
-          cb,
-          GENSPARK_LLM_BASE_URLS.anthropic,
-        )
-      }
-      if (config.model.startsWith('gemini')) {
-        return streamGemini(
-          config,
-          system,
-          messages,
-          tools,
-          maxTokens,
-          cb,
-          GENSPARK_LLM_BASE_URLS.gemini,
-        )
-      }
-      return streamOpenAiCompatible(
-        GENSPARK_LLM_BASE_URLS.openai,
-        config,
-        system,
-        messages,
-        tools,
-        maxTokens,
-        cb,
-      )
+  // genspark fronts three upstreams and picks by model id; resolveProviderWire
+  // owns that rule for every call path
+  const { protocol, baseUrl } = resolveProviderWire(provider, config)
+  switch (protocol) {
     case 'anthropic':
-      return streamAnthropic(config, system, messages, tools, maxTokens, cb)
+      return streamAnthropic(config, system, messages, tools, maxTokens, cb, baseUrl)
     case 'gemini':
-      return streamGemini(config, system, messages, tools, maxTokens, cb)
-    case 'deepseek':
-    case 'openai':
-      return streamOpenAiCompatible(
-        OPENAI_COMPATIBLE_BASE_URLS[provider]!,
+      return streamGemini(config, system, messages, tools, maxTokens, cb, baseUrl)
+    case 'openai-responses': {
+      const result = await streamOpenAiResponses(
+        baseUrl,
         config,
         system,
         messages,
@@ -496,10 +463,13 @@ export async function streamForProvider(
         maxTokens,
         cb,
       )
-    case 'custom':
-      if (!config.baseUrl) throw new Error('A custom provider requires a Base URL')
-      return streamOpenAiCompatible(config.baseUrl, config, system, messages, tools, maxTokens, cb)
+      // the endpoint does not know /v1/responses (a proxy, an older gateway):
+      // resolveProviderWire will route to Chat Completions from here on, and
+      // this turn still has to be served
+      if (!result?.unsupported) return
+      return streamOpenAiCompatible(baseUrl, config, system, messages, tools, maxTokens, cb)
+    }
     default:
-      throw new Error(`Unknown provider: ${provider}`)
+      return streamOpenAiCompatible(baseUrl, config, system, messages, tools, maxTokens, cb)
   }
 }

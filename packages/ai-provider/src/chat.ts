@@ -1,5 +1,6 @@
 import { httpBodyDetail } from './http-error'
-import { GENSPARK_LLM_BASE_URLS } from './providers'
+import { chatOpenAiResponses } from './openai-responses'
+import { resolveProviderWire } from './providers'
 import type { AiChatResponse, AiProviderConfig, AiProviderId } from './types'
 
 async function chatAnthropic(
@@ -25,7 +26,10 @@ async function chatAnthropic(
     }),
   })
   if (!response.ok) {
-    return { ok: false, error: `Claude HTTP ${response.status}: ${httpBodyDetail(await response.text())}` }
+    return {
+      ok: false,
+      error: `Claude HTTP ${response.status}: ${httpBodyDetail(await response.text())}`,
+    }
   }
   const json = (await response.json()) as { content?: Array<{ type: string; text?: string }> }
   const content = json.content
@@ -53,7 +57,10 @@ async function chatGemini(
     }),
   })
   if (!response.ok) {
-    return { ok: false, error: `Gemini HTTP ${response.status}: ${httpBodyDetail(await response.text())}` }
+    return {
+      ok: false,
+      error: `Gemini HTTP ${response.status}: ${httpBodyDetail(await response.text())}`,
+    }
   }
   const json = (await response.json()) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
@@ -93,11 +100,6 @@ async function chatOpenAiCompatible(
   return { ok: true, content }
 }
 
-const OPENAI_COMPATIBLE_BASE_URLS: Partial<Record<AiProviderId, string>> = {
-  deepseek: 'https://api.deepseek.com/v1',
-  openai: 'https://api.openai.com/v1',
-}
-
 /** route a one-shot (non-streaming, non-tool-calling) chat call by provider id */
 export async function chatForProvider(
   provider: AiProviderId,
@@ -105,26 +107,24 @@ export async function chatForProvider(
   system: string,
   user: string,
 ): Promise<AiChatResponse> {
-  switch (provider) {
-    case 'genspark':
-      if (config.model.startsWith('claude')) {
-        return chatAnthropic(config, system, user, GENSPARK_LLM_BASE_URLS.anthropic)
-      }
-      if (config.model.startsWith('gemini')) {
-        return chatGemini(config, system, user, GENSPARK_LLM_BASE_URLS.gemini)
-      }
-      return chatOpenAiCompatible(GENSPARK_LLM_BASE_URLS.openai, config, system, user)
+  let wire: { protocol: string; baseUrl: string }
+  try {
+    wire = resolveProviderWire(provider, config)
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+  switch (wire.protocol) {
     case 'anthropic':
-      return chatAnthropic(config, system, user)
+      return chatAnthropic(config, system, user, wire.baseUrl)
     case 'gemini':
-      return chatGemini(config, system, user)
-    case 'deepseek':
-    case 'openai':
-      return chatOpenAiCompatible(OPENAI_COMPATIBLE_BASE_URLS[provider]!, config, system, user)
-    case 'custom':
-      if (!config.baseUrl) return { ok: false, error: 'A custom provider requires a Base URL' }
-      return chatOpenAiCompatible(config.baseUrl, config, system, user)
+      return chatGemini(config, system, user, wire.baseUrl)
+    case 'openai-responses': {
+      const result = await chatOpenAiResponses(wire.baseUrl, config, system, user)
+      // endpoint does not know /v1/responses; serve this call the old way
+      if (!('unsupported' in result)) return result
+      return chatOpenAiCompatible(wire.baseUrl, config, system, user)
+    }
     default:
-      return { ok: false, error: `Unknown provider: ${provider}` }
+      return chatOpenAiCompatible(wire.baseUrl, config, system, user)
   }
 }
