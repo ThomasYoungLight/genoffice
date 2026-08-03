@@ -8,9 +8,10 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   generateDeckLocally,
   pageContentFrom,
+  tightenContent,
   type LocalDeckArgs,
 } from '../src/renderer/ai/deck-local'
-import { CANVAS, type RenderedPage } from '../src/renderer/ai/deck-layout'
+import { CANVAS, type PageContent, type RenderedPage } from '../src/renderer/ai/deck-layout'
 
 const plan = (n: number): Array<Record<string, unknown>> =>
   Array.from({ length: n }, (_, i) => ({
@@ -197,6 +198,150 @@ describe('generateDeckLocally', () => {
   })
 })
 
+/**
+ * The layout engine sizes boxes from an estimate of how wide text will be; the
+ * renderer knows. Every fitting bug in this feature came from that gap, so a
+ * landed page is measured and rebuilt with less content when the measurement
+ * disagrees.
+ */
+describe('render → measure → tighten', () => {
+  const wordy = {
+    title: 'A page whose content the renderer will say does not fit in the space available',
+    bullets: [
+      'A bullet long enough that the estimate and the renderer are likely to disagree about it',
+      'A second bullet of similar length, also pushing against the bottom of its box',
+      'A third for good measure, because three is what the layout expects to receive',
+      'A fourth that only survives the first tightening pass',
+    ],
+    cards: [
+      { heading: 'A heading longer than the slot', body: 'A body sentence of a fair length.' },
+    ],
+  }
+
+  it('rebuilds the page in place until the renderer stops complaining', async () => {
+    const rendered: Array<{ replaceIndex?: number; chars: number }> = []
+    let round = 0
+    const bulletPage = plan(1)
+    bulletPage[0]!.type = 'content'
+    bulletPage[0]!.layout = 'bullets'
+    const { args } = harness({
+      pages: bulletPage,
+      planPageContent: async () => ({ ok: true, content: wordy }),
+      renderLocalPage: async ({ page, replaceIndex }) => {
+        const chars = page.elements
+          .flatMap((e) => (e.kind === 'text' ? e.paragraphs : []))
+          .flatMap((p) => p.runs.map((r) => r.text.length))
+          .reduce((a, b) => a + b, 0)
+        rendered.push({ ...(replaceIndex !== undefined ? { replaceIndex } : {}), chars })
+        // the renderer reports overflow on the first attempt only
+        return { ok: true, slideIndex: 3, issues: round++ === 0 ? ['Text overflow: 40px'] : [] }
+      },
+    })
+    const result = await generateDeckLocally(args)
+
+    expect(rendered).toHaveLength(2)
+    // the retry rebuilds the page that already landed, rather than appending
+    expect(rendered[0]!.replaceIndex).toBeUndefined()
+    expect(rendered[1]!.replaceIndex).toBe(3)
+    // and it carries less text than the attempt the renderer rejected
+    expect(rendered[1]!.chars).toBeLessThan(rendered[0]!.chars)
+    expect(result.landed).toBe(1)
+    expect(result.errors[0]).toBeUndefined()
+  })
+
+  it('gives up after two rebuilds and says the page is still imperfect', async () => {
+    let calls = 0
+    const { args } = harness({
+      pages: plan(1),
+      planPageContent: async () => ({ ok: true, content: wordy }),
+      renderLocalPage: async () => {
+        calls++
+        return { ok: true, slideIndex: 0, issues: ['Overlap: title and body intersect'] }
+      },
+    })
+    const result = await generateDeckLocally(args)
+
+    expect(calls).toBe(3) // first attempt + MAX_TIGHTEN rebuilds
+    expect(result.landed).toBe(1) // the page stays: imperfect beats absent
+    expect(result.errors[0]).toContain('still imperfect')
+    expect(result.errors[0]).toContain('Overlap')
+  })
+
+  it('does not rebuild a page the renderer is happy with', async () => {
+    let calls = 0
+    const { args } = harness({
+      pages: plan(2),
+      renderLocalPage: async () => {
+        calls++
+        return { ok: true, slideIndex: calls - 1, issues: [] }
+      },
+    })
+    await generateDeckLocally(args)
+    expect(calls).toBe(2)
+  })
+
+  it('treats a bridge that reports nothing as nothing to fix', async () => {
+    // older/other implementations may not return issues at all
+    let calls = 0
+    const { args } = harness({
+      pages: plan(1),
+      renderLocalPage: async () => {
+        calls++
+        return { ok: true }
+      },
+    })
+    const result = await generateDeckLocally(args)
+    expect(calls).toBe(1)
+    expect(result.landed).toBe(1)
+  })
+})
+
+describe('tightenContent', () => {
+  const full: PageContent = {
+    title: 'A title of moderate length that is still perfectly reasonable for one slide',
+    subtitle: 'A supporting line that says a little more about what the page is claiming here',
+    bullets: ['one two three four five six seven eight nine ten', 'b', 'c', 'd', 'e'],
+    cards: [{ heading: 'A heading that is rather long for a card', body: 'x'.repeat(200) }],
+    figure: { value: '42%', caption: 'y'.repeat(120) },
+    source: 'Source: a long provenance line naming several documents at once, in detail',
+  }
+
+  it('changes nothing at level zero', () => {
+    expect(tightenContent(full, 0)).toBe(full)
+  })
+
+  it('sheds text before it sheds items, and marks what it cut', () => {
+    const t1 = tightenContent(full, 1)
+    expect(t1.bullets).toHaveLength(4)
+    expect(t1.cards![0]!.body.length).toBeLessThan(full.cards![0]!.body.length)
+    expect(t1.cards![0]!.body.endsWith('…')).toBe(true)
+    // provenance survives the first pass — it is evidence, not filler
+    expect(t1.source).toBe(full.source)
+
+    const t2 = tightenContent(full, 2)
+    expect(t2.bullets).toHaveLength(3)
+    expect(t2.cards![0]!.body.length).toBeLessThan(t1.cards![0]!.body.length)
+    expect(t2.figure!.caption.length).toBeLessThan(t1.figure!.caption.length)
+  })
+
+  it('cuts on a word boundary rather than mid-word', () => {
+    const long =
+      'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma'
+    const t = tightenContent({ ...full, bullets: [long] }, 2)
+    const line = t.bullets![0]!
+    expect(line.endsWith('…')).toBe(true)
+    // the cut lands between words: the last token is a whole one from the input
+    const last = line.replace('…', '').trim().split(' ').pop()!
+    expect(long.split(' ')).toContain(last)
+  })
+
+  it('leaves already-short content alone', () => {
+    const short: PageContent = { title: 'Short', bullets: ['a', 'b'] }
+    expect(tightenContent(short, 2).title).toBe('Short')
+    expect(tightenContent(short, 2).bullets).toEqual(['a', 'b'])
+  })
+})
+
 describe('pageContentFrom', () => {
   it('keeps the good fields of a partly malformed answer', () => {
     const content = pageContentFrom(
@@ -238,5 +383,64 @@ describe('pageContentFrom', () => {
     expect(pageContentFrom(null, 'title').title).toBe('title')
     expect(pageContentFrom('a string', 'title').bullets).toBeUndefined()
     expect(pageContentFrom({}, 'title', 'https://x/y.png').imageUrl).toBe('https://x/y.png')
+  })
+})
+
+/**
+ * The KPI value slot is 52pt and holds a figure. A real generation filled it
+ * with metric names — "Acknowledged <15 min" — which pass a digit check and
+ * render as huge clipped stubs.
+ */
+describe('KPI values are figures, not metric names', () => {
+  const kpiPage = (kpis: Array<{ value: string; label: string }>) =>
+    pageContentFrom({ title: 'Metrics', kpis }, 'fallback')
+
+  it('accepts the shapes a figure actually takes', () => {
+    const c = kpiPage([
+      { value: '18%', label: 'growth' },
+      { value: '$4.2M', label: 'pipeline' },
+      { value: '2.1 days', label: 'lead time' },
+      { value: '99.95%', label: 'uptime' },
+    ])
+    expect(c.kpis).toHaveLength(4)
+    expect(c.cards).toBeUndefined()
+  })
+
+  it('rejects a metric name wearing a number, and keeps it as a card', () => {
+    const c = kpiPage([
+      { value: 'Acknowledged <15 min', label: 'Response performance' },
+      { value: 'Pages/shift P90', label: 'Alert load and toil' },
+      { value: 'Error-budget burn 20%', label: 'Reliability' },
+    ])
+    expect(c.kpis).toBeUndefined()
+    // the content survives in a slot that can hold a phrase
+    expect(c.cards).toEqual([
+      { heading: 'Acknowledged <15 min', body: 'Response performance' },
+      { heading: 'Pages/shift P90', body: 'Alert load and toil' },
+      { heading: 'Error-budget burn 20%', body: 'Reliability' },
+    ])
+  })
+
+  it('does not overwrite real cards with salvaged ones', () => {
+    const c = pageContentFrom(
+      {
+        title: 'Both',
+        cards: [{ heading: 'Real', body: 'card' }],
+        kpis: [
+          { value: 'Not a figure at all', label: 'x' },
+          { value: 'Also not one here', label: 'y' },
+        ],
+      },
+      'fallback',
+    )
+    expect(c.cards).toEqual([{ heading: 'Real', body: 'card' }])
+  })
+
+  it('still drops icon-style values that carry no number', () => {
+    const c = kpiPage([
+      { value: '◯', label: 'Deep work' },
+      { value: '◇', label: 'Decisions' },
+    ])
+    expect(c.kpis).toBeUndefined()
   })
 })

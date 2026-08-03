@@ -44,7 +44,19 @@ export interface LocalDeckDeps {
     first: boolean
     replaceExisting: boolean
     deckName?: string | undefined
-  }): Promise<{ ok: boolean; error?: string }>
+    /** retry: rebuild the page already sitting at this index instead of appending */
+    replaceIndex?: number | undefined
+  }): Promise<{
+    ok: boolean
+    error?: string
+    /**
+     * What the layout engine got wrong, measured by the renderer rather than
+     * estimated: overflow, overlap, off-canvas. Empty means the page is sound.
+     */
+    issues?: string[]
+    /** where the page landed, so a retry can rebuild it in place */
+    slideIndex?: number
+  }>
 }
 
 export interface LocalDeckArgs extends LocalDeckDeps {
@@ -69,6 +81,21 @@ export interface LocalDeckResult {
   errors: Array<string | undefined>
   cancelled: boolean
 }
+
+/**
+ * Rebuild rounds allowed per page when the render disagrees with the layout.
+ * The OfficeCLI pptx skill caps its own fix-verify loop at three for the same
+ * reason: past that, a page that still reports issues is usually oscillating
+ * rather than converging, and the honest move is to report it.
+ */
+const MAX_TIGHTEN = 2
+
+/**
+ * Longest string still readable as a figure in the 52pt KPI slot. "$4.2M",
+ * "18%", "2.1 days" pass; "Acknowledged <15 min" is a metric name wearing a
+ * number and does not.
+ */
+const KPI_VALUE_MAX = 12
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
 
@@ -115,19 +142,78 @@ export function pageContentFrom(
   const figureValue = figureRaw ? str(figureRaw.value) : ''
   const bullets = strList(r.bullets, 6)
   const cards = pairList(r.cards, 'heading', 'body', 3)
-  // A KPI page exists to show figures. Asked for them with none to hand, models
-  // fill the slot with icons or single words, which renders as a row of huge
-  // meaningless glyphs — worse than the layout the page degrades to instead.
-  const kpis = pairList(r.kpis, 'value', 'label', 4).filter((k) => /\d/.test(k.value))
+  /**
+   * A KPI page exists to show figures, and the value slot is 52pt: it holds a
+   * figure, not a phrase. Requiring a digit is not enough on its own — a
+   * metric *name* like "Acknowledged <15 min" contains one, and renders as a
+   * huge clipped stub ("Acknowled…"). A real figure is short, so length is the
+   * test that actually separates them. Below four valid ones the page degrades
+   * to a layout that can carry prose.
+   */
+  const kpiItems = pairList(r.kpis, 'value', 'label', 4)
+  const kpis = kpiItems.filter((k) => /\d/.test(k.value) && k.value.length <= KPI_VALUE_MAX)
+  // A rejected KPI set is a list of metric names with descriptions, which is
+  // what a card is. Keep the content and let it render as one, rather than
+  // dropping the page's whole substance because the slot was wrong.
+  const salvaged =
+    kpis.length === 0 && kpiItems.length >= 2 && cards.length === 0
+      ? kpiItems.slice(0, 3).map((k) => ({ heading: k.value, body: k.label }))
+      : []
+  const cardList = cards.length ? cards : salvaged
   return {
     title: str(r.title) || fallbackTitle,
     ...(str(r.subtitle) ? { subtitle: str(r.subtitle) } : {}),
     ...(bullets.length ? { bullets } : {}),
-    ...(cards.length ? { cards } : {}),
+    ...(cardList.length ? { cards: cardList } : {}),
     ...(kpis.length ? { kpis } : {}),
     ...(figureValue ? { figure: { value: figureValue, caption: str(figureRaw?.caption) } } : {}),
     ...(str(r.source) ? { source: str(r.source) } : {}),
     ...(imageUrl ? { imageUrl } : {}),
+  }
+}
+
+/** Cut a string at a word boundary, marking that something was removed. */
+function shorten(s: string, max: number): string {
+  if (s.length <= max) return s
+  const cut = s.slice(0, max)
+  const space = cut.lastIndexOf(' ')
+  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`
+}
+
+/**
+ * Less content, for a page the renderer says does not fit.
+ *
+ * The type floor rules out shrinking the way out of an overflow, so the answer
+ * is to carry less: shorter lines first, then fewer of them. Each level is
+ * roughly a third off, which converges in the two rounds the loop allows
+ * without gutting the page on the first retry.
+ */
+export function tightenContent(c: PageContent, level: number): PageContent {
+  if (level <= 0) return c
+  /**
+   * Proportional, not a fixed cap. A cap only bites on text that happens to
+   * exceed it, so a page overflowing by a little could come back from a
+   * "tightened" round completely unchanged and loop without converging.
+   * Trimming a fraction always reduces something there is something to reduce.
+   */
+  const keep = level === 1 ? 0.75 : 0.55
+  const trim = (s: string, floor = 24) =>
+    s.length <= floor ? s : shorten(s, Math.max(floor, Math.round(s.length * keep)))
+  // a list sheds one item per round before its lines get any shorter
+  const bullets = c.bullets?.slice(0, Math.max(2, c.bullets.length - level)).map((b) => trim(b))
+  const cards = c.cards
+    ?.slice(0, level > 1 ? Math.max(1, c.cards.length - 1) : c.cards.length)
+    .map((card) => ({ heading: trim(card.heading, 16), body: trim(card.body) }))
+  return {
+    ...c,
+    title: trim(c.title, 40),
+    ...(c.subtitle ? { subtitle: trim(c.subtitle, 32) } : {}),
+    ...(bullets?.length ? { bullets } : {}),
+    ...(cards?.length ? { cards } : {}),
+    ...(c.kpis?.length ? { kpis: c.kpis.map((k) => ({ ...k, label: trim(k.label, 18) })) } : {}),
+    ...(c.figure ? { figure: { ...c.figure, caption: trim(c.figure.caption, 28) } } : {}),
+    // a source line is provenance, not filler — it is the last thing to go
+    ...(c.source && level > 1 ? { source: trim(c.source, 40) } : {}),
   }
 }
 
@@ -188,20 +274,41 @@ export async function generateDeckLocally(args: LocalDeckArgs): Promise<LocalDec
     // planner already produced a title, and a titled page in the right place
     // beats a gap the user has to notice and fill.
     const degraded = !content
-    const page = layoutPage(layout, content ?? { title, ...(imageUrl ? { imageUrl } : {}) }, theme)
+    const base = content ?? { title, ...(imageUrl ? { imageUrl } : {}) }
 
-    const r = await args.renderLocalPage({
-      page,
-      // "first" means first to land, not first planned: if page 1 failed, the
-      // deck must still be replaced by whichever page arrives first
-      first: landed === 0,
-      replaceExisting: args.insertMode === 'replace',
-      deckName: args.deckName,
-    })
+    /**
+     * Render, then look. The layout engine sizes boxes from an estimate of how
+     * wide the text will be; the renderer knows. Every fitting bug in this
+     * feature so far has been the gap between the two, so the page is measured
+     * once it exists and rebuilt with less content if the measurement
+     * disagrees — two rounds, then take what we have rather than seesaw.
+     */
+    let r = { ok: false } as Awaited<ReturnType<LocalDeckDeps['renderLocalPage']>>
+    let unfixed: string[] = []
+    for (let round = 0; round <= MAX_TIGHTEN; round++) {
+      if (signal?.aborted) return { landed, doneFlags, errors, cancelled: true }
+      r = await args.renderLocalPage({
+        page: layoutPage(layout, tightenContent(base, round), theme),
+        // "first" means first to land, not first planned: if page 1 failed, the
+        // deck must still be replaced by whichever page arrives first
+        first: landed === 0,
+        replaceExisting: args.insertMode === 'replace',
+        deckName: args.deckName,
+        ...(round > 0 ? { replaceIndex: r.slideIndex } : {}),
+      })
+      unfixed = r.issues ?? []
+      // a page that could not be drawn at all is not a fitting problem
+      if (!r.ok || unfixed.length === 0 || r.slideIndex === undefined) break
+    }
+
     if (r.ok) {
       landed += 1
       doneFlags[i] = true
-      errors[i] = degraded ? `${lastErr} (page landed with its title only)` : undefined
+      errors[i] = degraded
+        ? `${lastErr} (page landed with its title only)`
+        : unfixed.length
+          ? `layout still imperfect after ${MAX_TIGHTEN} retries: ${unfixed[0]}`
+          : undefined
       args.onPage?.(i, 'done', errors[i])
     } else {
       errors[i] = r.error ?? 'page could not be added to the deck'

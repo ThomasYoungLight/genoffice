@@ -10,6 +10,7 @@ import {
   type DeckProgressEvent,
   type PageProgressItem,
 } from './slides-skill'
+import { auditSlideLayout } from './layout-audit'
 import { extractJsonObject, parseOutlineJson } from './outline-json'
 import { createFilesSkill } from './files-skill'
 import { createElectronTransport } from './transport'
@@ -814,11 +815,15 @@ export function AiPanel({
         }
         return { ok: false, error: lastErr }
       },
-      renderLocalPage: async ({ page, first, replaceExisting }) => {
+      renderLocalPage: async ({ page, first, replaceExisting, replaceIndex }) => {
         try {
           const existing = slidesRef.current.length
+          // A retry builds the replacement immediately after the page it
+          // replaces and deletes the original afterwards, so the new page ends
+          // up at the same index and the deck order never breaks mid-rebuild.
+          const rebuilding = replaceIndex !== undefined && replaceIndex < existing
           const added = await window.slidesApi.addBlankSlide({
-            sourceIndex: existing - 1,
+            sourceIndex: rebuilding ? replaceIndex : existing - 1,
             fitWidthPx,
           })
           if (!added) return { ok: false, error: 'could not add a page to the deck' }
@@ -854,14 +859,35 @@ export function AiPanel({
             })
             if (r) applySlideRef.current(idx, r.slide)
           }
+          let landedAt = idx
+          if (rebuilding) {
+            // drop the page this one replaces; the rebuild takes its index
+            const after = await window.slidesApi.deleteSlide(replaceIndex)
+            if (after) {
+              applyDeckRef.current(after, replaceIndex)
+              landedAt = replaceIndex
+            }
+          }
           // Replace mode: the pages that were open before this run go away only
           // once the first generated page is safely on the canvas.
-          if (first && replaceExisting && existing > 0) {
+          if (first && replaceExisting && existing > 0 && !rebuilding) {
             let remaining: RenderSlide[] | null = null
             for (let i = 0; i < existing; i++) remaining = await window.slidesApi.deleteSlide(0)
-            if (remaining) applyDeckRef.current(remaining, remaining.length - 1)
+            if (remaining) {
+              applyDeckRef.current(remaining, remaining.length - 1)
+              landedAt = remaining.length - 1
+            }
           }
-          return { ok: true }
+          // Measure what was actually drawn. The layout engine works from an
+          // estimate of text width; this is the renderer's own account of
+          // overflow, overlap and off-canvas, and it is what the caller
+          // tightens against.
+          const rendered = slidesRef.current[landedAt]
+          return {
+            ok: true,
+            slideIndex: landedAt,
+            ...(rendered ? { issues: auditSlideLayout(rendered) } : {}),
+          }
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) }
         }
