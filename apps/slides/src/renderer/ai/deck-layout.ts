@@ -326,6 +326,15 @@ function clipAt(text: string, max: number): string {
     /[.!?]$/.test(room.trimEnd()) ? room.trimEnd().length - 1 : -1,
   )
   if (sentence > max * 0.5) return room.slice(0, sentence + 1).trimEnd()
+  /**
+   * No sentence to end on. Dense slide copy is often one long clause chain
+   * with no full stop in it at all, and cutting by word alone leaves a
+   * dangling label — "…but coarse access; Polyrepo:…". A clause boundary is
+   * the next best stop: the text before it is a complete thought, so cut
+   * there and drop the punctuation that was introducing what follows.
+   */
+  const clause = Math.max(room.lastIndexOf('; '), room.lastIndexOf('— '), room.lastIndexOf('– '))
+  if (clause > max * 0.5) return `${room.slice(0, clause).trimEnd()}…`
   const space = room.lastIndexOf(' ')
   return `${(space > max * 0.6 ? room.slice(0, space) : room).trimEnd()}…`
 }

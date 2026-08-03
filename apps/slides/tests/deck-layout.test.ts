@@ -497,3 +497,54 @@ describe('full-width text', () => {
     expect(half).toBeLessThan(full)
   })
 })
+
+/**
+ * Strings taken verbatim from a generated deck. Dense comparison copy often
+ * has no full stop anywhere in it, and cutting by word alone left a dangling
+ * label — "…but coarse access; Polyrepo:…" — which reads worse than stopping
+ * one clause earlier.
+ */
+describe('clipping run-on slide copy', () => {
+  const clipped = (body: string) => {
+    const page = layoutPage(
+      'comparison',
+      {
+        title: 'Monorepo versus polyrepo',
+        cards: [
+          { heading: 'Left', body },
+          { heading: 'Right', body: 'short' },
+        ],
+      },
+      LIGHT_THEME,
+    )
+    return page.elements
+      .filter((e) => e.kind === 'text')
+      .flatMap((e) => (e.kind === 'text' ? e.paragraphs : []))
+      .map((p) => p.runs[0]!.text)
+      .find((t) => t.startsWith(body.slice(0, 12)))!
+  }
+
+  it('stops at a clause boundary rather than stranding the next label', () => {
+    const real =
+      'Monorepo: centralized scanning, provenance, dependency policy and remediation, but coarse access; ' +
+      'Polyrepo: per-service isolation and least privilege, but duplicated policy and drift across teams, ' +
+      'which is the failure mode that shows up in audits about a year after the split happens in practice.'
+    const out = clipped(real)
+    expect(out.length).toBeLessThan(real.length)
+    // does not end mid-label
+    expect(out.trimEnd().endsWith(':…')).toBe(false)
+    expect(out.trimEnd().endsWith(';…')).toBe(false)
+    // the kept text is a complete thought from the original
+    expect(real.startsWith(out.replace('…', '').trimEnd())).toBe(true)
+  })
+
+  it('prefers a full stop over a clause boundary when both are available', () => {
+    const mixed =
+      'Monorepo keeps one build graph; that is the whole point of it. ' +
+      'Polyrepo trades that for isolation, at the cost of drift between services, ' +
+      'and the drift is what turns up later as an audit finding nobody scheduled time for.'
+    const out = clipped(mixed)
+    expect(out.endsWith('.')).toBe(true)
+    expect(out.endsWith('…')).toBe(false)
+  })
+})
