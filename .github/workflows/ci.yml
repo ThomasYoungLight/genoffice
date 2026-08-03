@@ -79,6 +79,12 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # The agent's reach and its reference both drift silently: an IPC operation
+      # gains no tool, or a tool is renamed and the prompt keeps the old name.
+      # Neither breaks a test — the model just gets worse instructions.
+      - name: Check the agent surface
+        run: npm run agent-check
+
       - name: Regenerate test fixtures
         run: npm run fixtures
 

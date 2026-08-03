@@ -28,6 +28,8 @@
     "build": "npm run build -w @genoffice/docs",
     "build:all": "npm run build -w @genoffice/docs && npm run build -w @genoffice/sheets && npm run build -w @genoffice/slides && npm run build -w @genoffice/pdf && npm run build -w @genoffice/shell",
     "shell": "npm run build:all && electron apps/shell",
+    "agent-docs": "node tools/agent-tool-docs.mjs",
+    "agent-check": "node tools/agent-reachability.mjs --check && node tools/agent-tool-docs.mjs --check",
     "notices": "node tools/gen-third-party-notices.mjs",
     "licenses": "node tools/check-licenses.mjs",
     "dist:mac": "npm run notices && npm run build:all && npm run dist:mac -w @genoffice/shell",

@@ -403,7 +403,9 @@ function toEditParagraphs(raw: unknown): EditParagraph[] | null {
   })
 }
 
-const TOOLS: AgentToolDef[] = [
+/** Exported for the tool-reference generator (tools/agent-tool-docs.mjs), which
+ * reads the definitions rather than the prose describing them. */
+export const TOOLS: AgentToolDef[] = [
   {
     name: 'get_deck_context',
     description:
