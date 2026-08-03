@@ -25,6 +25,25 @@ export const CANVAS = { w: 1280, h: 720 } as const
 /** page margins and the rhythm everything else is measured against */
 const M = { x: 84, top: 76, bottom: 64, gap: 28 } as const
 
+/** height reserved for the page title, and where the body starts under it */
+const TITLE_H = 96
+const BODY_TOP = M.top + TITLE_H + 24
+
+/**
+ * Type floor. A slide title carries from the back of the room at 36pt and a
+ * body line at 18pt; below that a deck reads as a document projected. Fitting
+ * shrinks within these ladders and then drops or clips content, rather than
+ * shrinking on past the floor — an unreadable slide that fits is not a fit.
+ * Captions and short KPI sublabels are the deliberate exceptions.
+ */
+const SIZES = {
+  pageTitle: [36, 32, 28, 24],
+  body: [20, 19, 18],
+  cardBody: [18],
+  caption: [15, 14, 13],
+  source: [12, 11],
+} as const
+
 export interface Theme {
   /** page background */
   bg: string
@@ -219,7 +238,7 @@ function fitText(
   lines: string[],
   widthPx: number,
   heightPx: number,
-  sizes: number[],
+  sizes: readonly number[],
 ): { size: number; lines: string[] } {
   const size = sizes.find((s) => estimateTextHeight(lines, s, widthPx) <= heightPx) ?? sizes.at(-1)!
   let out = lines
@@ -271,13 +290,13 @@ function coverPage(c: PageContent, th: Theme): RenderedPage {
 
 function bulletsPage(c: PageContent, th: Theme): RenderedPage {
   const elements = [titleBlock(c, th)].flat()
-  const bodyTop = M.top + 96
+  const bodyTop = BODY_TOP
   const lines = cap(c.bullets, 6)
   if (lines.length) {
     const w = CANVAS.w - M.x * 2
     const h = CANVAS.h - bodyTop - (c.source ? M.bottom + 20 : M.bottom)
     // bullets carry 1.5 line spacing, so the fit budget is proportionally smaller
-    const fit = fitText(lines, w, h / 1.5, [20, 18, 16])
+    const fit = fitText(lines, w, h / 1.5, SIZES.body)
     elements.push(
       textBox(M.x, bodyTop, w, h, fit.lines, {
         size: fit.size,
@@ -293,12 +312,12 @@ function bulletsPage(c: PageContent, th: Theme): RenderedPage {
 
 function imageRightPage(c: PageContent, th: Theme): RenderedPage {
   const elements = [titleBlock(c, th)].flat()
-  const bodyTop = M.top + 96
+  const bodyTop = BODY_TOP
   const colW = (CANVAS.w - M.x * 2 - M.gap * 2) / 2
   const lines = cap(c.bullets, 5)
   if (lines.length) {
     const h = CANVAS.h - bodyTop - (c.source ? M.bottom + 20 : M.bottom)
-    const fit = fitText(lines, colW, h / 1.5, [19, 17, 15])
+    const fit = fitText(lines, colW, h / 1.5, SIZES.body)
     elements.push(
       textBox(M.x, bodyTop, colW, h, fit.lines, {
         size: fit.size,
@@ -324,23 +343,27 @@ function imageRightPage(c: PageContent, th: Theme): RenderedPage {
 function cardsPage(c: PageContent, th: Theme): RenderedPage {
   const elements = [titleBlock(c, th)].flat()
   const cards = cap(c.cards, 3)
-  const top = M.top + 110
-  const h = 300
+  const top = BODY_TOP
+  // tall enough to hold a full sentence at the 18pt floor; the alternative is
+  // shrinking under the floor, which is what the floor exists to prevent
+  const h = 380
   const w = (CANVAS.w - M.x * 2 - M.gap * (cards.length - 1)) / Math.max(1, cards.length)
   cards.forEach((card, i) => {
     const x = M.x + i * (w + M.gap)
+    // A solid panel and nothing else: the card with a coloured left-border
+    // stripe is the other well-known machine-made-slide tell. The heading
+    // carries the accent instead, which separates the cards just as well.
     elements.push({ kind: 'rect', x, y: top, w, h, fill: th.surface })
-    elements.push({ kind: 'rect', x, y: top, w: 6, h, fill: th.accent })
     const head = fitText([card.heading], w - 56, 74, [22, 20, 18])
     elements.push(
       textBox(x + 28, top + 26, w - 56, 74, head.lines, {
         size: head.size,
-        color: th.text,
+        color: th.accent,
         bold: true,
         font: th.headFont,
       }),
     )
-    const body = fitText([card.body], w - 56, (h - 130) / 1.4, [16, 15, 14, 13])
+    const body = fitText([card.body], w - 56, (h - 130) / 1.4, SIZES.cardBody)
     elements.push(
       textBox(x + 28, top + 104, w - 56, h - 130, body.lines, {
         size: body.size,
@@ -356,7 +379,7 @@ function cardsPage(c: PageContent, th: Theme): RenderedPage {
 function bigNumberPage(c: PageContent, th: Theme): RenderedPage {
   const elements = [titleBlock(c, th)].flat()
   const figure = c.figure ?? { value: '—', caption: c.subtitle ?? '' }
-  const top = M.top + 150
+  const top = BODY_TOP + 20
   // 128pt occupies ~232px of line box; the box is sized for it, and a figure
   // too long to sit on one line steps down instead of running over the caption
   const value = fitText([figure.value], CANVAS.w - M.x * 2, 240, [128, 108, 88, 70])
@@ -387,7 +410,7 @@ function bigNumberPage(c: PageContent, th: Theme): RenderedPage {
 function kpisPage(c: PageContent, th: Theme): RenderedPage {
   const elements = [titleBlock(c, th)].flat()
   const kpis = cap(c.kpis, 4)
-  const top = M.top + 130
+  const top = BODY_TOP + 10
   const h = 210
   const w = (CANVAS.w - M.x * 2 - M.gap * (kpis.length - 1)) / Math.max(1, kpis.length)
   kpis.forEach((kpi, i) => {
@@ -404,7 +427,7 @@ function kpisPage(c: PageContent, th: Theme): RenderedPage {
         font: th.headFont,
       }),
     )
-    const label = fitText([kpi.label], w - 40, 60, [15, 14, 13])
+    const label = fitText([kpi.label], w - 40, 60, SIZES.caption)
     elements.push(
       textBox(x + 20, top + 138, w - 40, 60, label.lines, {
         size: label.size,
@@ -420,7 +443,7 @@ function kpisPage(c: PageContent, th: Theme): RenderedPage {
 function comparisonPage(c: PageContent, th: Theme): RenderedPage {
   const elements = [titleBlock(c, th)].flat()
   const cols = cap(c.cards, 2)
-  const top = M.top + 110
+  const top = BODY_TOP
   const h = CANVAS.h - top - M.bottom - 20
   const w = (CANVAS.w - M.x * 2 - M.gap) / Math.max(1, cols.length)
   cols.forEach((col, i) => {
@@ -437,7 +460,7 @@ function comparisonPage(c: PageContent, th: Theme): RenderedPage {
         font: th.headFont,
       }),
     )
-    const body = fitText([col.body], w - 60, (h - 130) / 1.45, [17, 16, 14, 13])
+    const body = fitText([col.body], w - 60, (h - 130) / 1.45, SIZES.cardBody)
     elements.push(
       textBox(x + 30, top + 104, w - 60, h - 130, body.lines, {
         size: body.size,
@@ -465,7 +488,7 @@ function closingPage(c: PageContent, th: Theme): RenderedPage {
   const sub = c.subtitle ? fitText([c.subtitle], w, 76, [20, 18]) : null
   const subH = sub ? estimateTextHeight(sub.lines, sub.size, w) : 0
   const listW = w - 220
-  const list = steps.length ? fitText(steps, listW, 200 / 1.5, [18, 16, 15]) : null
+  const list = steps.length ? fitText(steps, listW, 200 / 1.5, SIZES.cardBody) : null
   const listH = list ? estimateTextHeight(list.lines, list.size, listW) * 1.5 : 0
 
   const blockH = titleH + (sub ? subH + 20 : 0) + (list ? listH + 28 : 0)
@@ -508,17 +531,18 @@ function closingPage(c: PageContent, th: Theme): RenderedPage {
 /** Shared heading: title, optional deck, and a rule under it. */
 function titleBlock(c: PageContent, th: Theme): ElementSpec[] {
   const w = CANVAS.w - M.x * 2
-  // fixed height: everything below is positioned against it, so a long title
-  // shrinks to fit rather than pushing the page down
-  const fit = fitText([c.title], w, 62, [32, 28, 24, 20])
+  // Fixed height: everything below is positioned against it, so a long title
+  // shrinks to fit rather than pushing the page down. No rule or accent bar
+  // under it — a stripe below a heading is the most recognisable
+  // machine-made-slide tell; the whitespace above the body separates them.
+  const fit = fitText([c.title], w, TITLE_H, [36, 32, 28, 24])
   return [
-    textBox(M.x, M.top, w, 62, fit.lines, {
+    textBox(M.x, M.top, w, TITLE_H, fit.lines, {
       size: fit.size,
       color: th.text,
       bold: true,
       font: th.headFont,
     }),
-    { kind: 'rect', x: M.x, y: M.top + 66, w: 64, h: 4, fill: th.accent },
   ]
 }
 
@@ -526,7 +550,7 @@ function titleBlock(c: PageContent, th: Theme): ElementSpec[] {
 function withSource(c: PageContent, th: Theme, page: RenderedPage): RenderedPage {
   if (!c.source) return page
   const w = CANVAS.w - M.x * 2
-  const fit = fitText([c.source], w, 34, [12, 11, 10])
+  const fit = fitText([c.source], w, 34, SIZES.source)
   page.elements.push(
     textBox(M.x, CANVAS.h - M.bottom + 8, w, 34, fit.lines, {
       size: fit.size,

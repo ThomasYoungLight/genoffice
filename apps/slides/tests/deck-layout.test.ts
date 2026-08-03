@@ -165,19 +165,32 @@ describe('layoutPage with more content than the slot expects', () => {
     }
   })
 
-  it('shrinks the text rather than dropping it, until it cannot', () => {
-    // the card body: same slot, short content vs flooded
-    const sizeOfCardBody = (content: PageContent, needle: string) => {
-      const el = layoutPage('cards', content, LIGHT_THEME).elements.find(
-        (e) => e.kind === 'text' && e.paragraphs.some((p) => p.runs[0]?.text.includes(needle)),
+  it('shrinks within the ladder before giving up any content', () => {
+    const titleSize = (content: PageContent) => {
+      const el = layoutPage('bullets', content, LIGHT_THEME).elements.find(
+        (e) =>
+          e.kind === 'text' &&
+          e.paragraphs[0]?.runs[0]?.text.startsWith(content.title.slice(0, 12)),
       )
       return el?.kind === 'text' ? (el.paragraphs[0]?.runs[0]?.fontSize ?? 0) : 0
     }
-    const short = sizeOfCardBody(CONTENT, 'New logos up 24%')
-    const flooded = sizeOfCardBody(FLOOD, 'Two-by-two grid')
-    expect(short).toBeGreaterThan(0)
-    expect(flooded).toBeGreaterThan(0)
-    expect(flooded).toBeLessThan(short)
+    expect(titleSize(CONTENT)).toBe(36)
+    // the long title uses the ladder rather than wrapping out of its box
+    expect(titleSize(FLOOD)).toBeLessThan(36)
+  })
+
+  it('clips at the type floor instead of shrinking under it', () => {
+    const body = layoutPage('cards', FLOOD, LIGHT_THEME).elements.find(
+      (e) => e.kind === 'text' && e.paragraphs.some((p) => p.runs[0]?.text.includes('Two-by-two')),
+    )
+    expect(body?.kind).toBe('text')
+    if (body?.kind !== 'text') return
+    const run = body.paragraphs[0]!.runs[0]!
+    // body text stays at the floor…
+    expect(run.fontSize).toBe(18)
+    // …and the overflow is taken out of the text, visibly
+    expect(run.text.endsWith('…')).toBe(true)
+    expect(run.text.length).toBeLessThan(FLOOD.cards![0]!.body.length)
   })
 })
 
@@ -235,6 +248,72 @@ describe('layoutPage content handling', () => {
         .some((p) => p.runs.some((r) => r.text.startsWith('Source:')))
     expect(has(CONTENT)).toBe(true)
     expect(has({ ...CONTENT, source: undefined })).toBe(false)
+  })
+})
+
+/**
+ * Delivery floor, from the OfficeCLI pptx skill (Apache-2.0, iOfficeAI): a deck
+ * is read from across a room, so a title carries at 36pt and body at 18pt, and
+ * text on a dark fill has to clear a real brightness gap rather than merely
+ * differ from it. Captions, sources and short KPI sublabels are the exceptions
+ * that skill names.
+ */
+describe('typographic and contrast floor', () => {
+  const CAPTION_SLOTS = [13, 14, 15, 12, 11]
+  const textRuns = (content: PageContent, layout: LayoutId, theme = LIGHT_THEME) =>
+    layoutPage(layout, content, theme)
+      .elements.filter((e) => e.kind === 'text')
+      .flatMap((e) => (e.kind === 'text' ? e.paragraphs : []))
+      .flatMap((p) => p.runs)
+
+  it.each(ALL)('never sets body text below the readable floor: %s', (layout) => {
+    for (const run of textRuns(CONTENT, layout)) {
+      const size = run.fontSize ?? 0
+      // captions/sources/sublabels are allowed under 18; nothing else is
+      if (CAPTION_SLOTS.includes(size)) continue
+      expect(size, `${layout}: "${run.text.slice(0, 30)}" at ${size}pt`).toBeGreaterThanOrEqual(18)
+    }
+  })
+
+  it('gives every page title the weight of a title', () => {
+    for (const layout of ALL) {
+      const title = textRuns(CONTENT, layout).find((r) => r.text === CONTENT.title)
+      expect(title?.fontSize ?? 0, layout).toBeGreaterThanOrEqual(36)
+      expect(title?.bold, layout).toBe(true)
+    }
+  })
+
+  it('clears a real brightness gap between text and the surface behind it', () => {
+    // (R×299 + G×587 + B×114) / 1000
+    const brightness = (hex: string) => {
+      const n = parseInt(hex.replace('#', ''), 16)
+      return (((n >> 16) & 255) * 299 + ((n >> 8) & 255) * 587 + (n & 255) * 114) / 1000
+    }
+    for (const theme of [LIGHT_THEME, DARK_THEME]) {
+      for (const layout of ALL) {
+        const page = layoutPage(layout, CONTENT, theme)
+        for (const el of page.elements) {
+          if (el.kind !== 'text') continue
+          const behind = page.elements
+            .filter(
+              (r) =>
+                r.kind === 'rect' &&
+                r.x <= el.x &&
+                r.y <= el.y &&
+                r.x + r.w >= el.x + el.w &&
+                r.y + r.h >= el.y + el.h,
+            )
+            .pop()
+          const surface = behind?.kind === 'rect' ? behind.fill : page.background
+          for (const p of el.paragraphs) {
+            for (const r of p.runs) {
+              const gap = Math.abs(brightness(r.color ?? '#000000') - brightness(surface))
+              expect(gap, `${layout}: ${r.color} on ${surface}`).toBeGreaterThan(90)
+            }
+          }
+        }
+      }
+    }
   })
 })
 
