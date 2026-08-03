@@ -14,7 +14,9 @@ import type {
   AnimEffectKind,
   AnimTrigger,
   EditParagraph,
+  HeaderFooterOp,
   LinkTargetOp,
+  ReorderDirection,
   SectionInfo,
   SlideComment,
   TransitionKind,
@@ -31,6 +33,10 @@ import { t } from '../i18n/locale'
  * the main process applies them and returns the new RenderSlide, which applySlide writes
  * back into React state — the same pipeline as manual editing.
  */
+
+/** Accepted by reorder_element / set_text_anchor; mirrors the IPC unions. */
+const REORDER_DIRS = new Set<string>(['front', 'back', 'forward', 'backward'])
+const TEXT_ANCHORS = new Set<string>(['top', 'middle', 'bottom'])
 
 /** Accepted by set_slide_transition / set_slide_animations; mirrors the IPC unions. */
 const TRANSITION_KINDS = new Set<string>([
@@ -327,6 +333,8 @@ Native tools (only for modifying/refining existing pages, not for generating fro
 - For data display use add_chart (eleven native chart types; pick by the question the page asks); for structured comparisons use add_table (cells can pre-fill text; later edit_table_cell edits cells, edit_table_structure adds/removes rows/columns); for flows/cycles/hierarchies/lists use add_smartart.
 - For a process, decision tree or dependency graph that SmartArt's fixed layouts cannot express, use insert_diagram with Mermaid source ("flowchart TD; A[Submit] --> B{Approved?}"). It lands as ordinary shapes and arrows, so any part can be moved or restyled afterwards.
 - set_slide_background sets a solid background (slideIndex=-1 for all pages); on dark backgrounds remember to lighten the text.
+- Arranging what is already there: group_elements binds parts into one object (and ungroup_element undoes it); reorder_element fixes a shape covering text; set_text_anchor puts text at the top/middle/bottom of its box; move_slide fixes the running order. group_elements and move_slide renumber things — re-read before addressing by id or page number afterwards.
+- set_header_footer sets the footer, page numbers and date on every page at once; use it instead of drawing a text box on each page.
 - **Last resort only**: read_raw_xml / edit_raw_xml reach the .pptx XML itself, for a property no tool models. Every normal change has a tool — use it, because the tools understand the document model and raw XML does not. If you do go raw: read the part first, copy enough text that find matches exactly once, keep the edit small, and tell the user what you changed. Well-formed XML can still be invalid OOXML that PowerPoint refuses to open.
 - Refine page by page, element by element; 2–4 elements per page is enough — fewer beats crowded.
 
@@ -1398,6 +1406,82 @@ export const TOOLS: AgentToolDef[] = [
         sourceId: { type: 'string', description: 'Group element id' },
       },
       required: ['slideIndex', 'sourceId'],
+    },
+  },
+  {
+    name: 'group_elements',
+    description:
+      'Group two or more elements so they move, resize and are styled as one — the counterpart of ungroup_element. Use after building something out of parts (a labelled icon, a callout with its arrow) so a later layout change keeps it together. Grouping rewrites the page, so element ids on it change; the result returns the new group id.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slideIndex: { type: 'integer', description: 'Page number (0-based)' },
+        sourceIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Ids of at least two elements on the page',
+        },
+      },
+      required: ['slideIndex', 'sourceIds'],
+    },
+  },
+  {
+    name: 'reorder_element',
+    description:
+      'Move an element through the stacking order — which one wins where they overlap. front/back jump to the top or bottom of the page; forward/backward move one step. Use it when a shape hides text, or to put a backdrop rectangle behind everything.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slideIndex: { type: 'integer', description: 'Page number (0-based)' },
+        sourceId: { type: 'string' },
+        dir: { type: 'string', enum: ['front', 'back', 'forward', 'backward'] },
+      },
+      required: ['slideIndex', 'sourceId', 'dir'],
+    },
+  },
+  {
+    name: 'set_text_anchor',
+    description:
+      "Set where text sits vertically inside its box: top, middle or bottom. The usual fix when a short line floats at the top of a tall shape, or when captions across a row do not line up. Horizontal alignment is the paragraph's align, set with set_element_text.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slideIndex: { type: 'integer', description: 'Page number (0-based)' },
+        sourceId: { type: 'string' },
+        anchor: { type: 'string', enum: ['top', 'middle', 'bottom'] },
+      },
+      required: ['slideIndex', 'sourceId', 'anchor'],
+    },
+  },
+  {
+    name: 'move_slide',
+    description:
+      'Move a page to a different position in the deck. Indexes are 0-based and describe the order before the move; sections follow their pages. Use it to fix a running order rather than deleting and rebuilding a page.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fromIndex: { type: 'integer' },
+        toIndex: { type: 'integer' },
+      },
+      required: ['fromIndex', 'toIndex'],
+    },
+  },
+  {
+    name: 'set_header_footer',
+    description:
+      'Set the deck-wide footer, slide numbers and date shown on every page. footer is the footer text (empty string or null removes it); slideNum turns page numbers on or off; date is a fixed date string, or set dateAuto for a field that updates when the deck is opened. Omit a field to leave it as it is.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        footer: { type: 'string', description: 'Footer text; empty string removes it' },
+        slideNum: { type: 'boolean', description: 'Show page numbers' },
+        date: { type: 'string', description: 'Fixed date text; empty string removes it' },
+        dateAuto: {
+          type: 'boolean',
+          description: 'Write the date as a field that updates on open, instead of fixed text',
+        },
+      },
+      required: [],
     },
   },
 ]
@@ -3991,6 +4075,129 @@ async function executeTool(
         output: `Ungrouped ${sourceId} on page ${idx + 1} into ${node.children.length} top-level elements. All element ids on this page changed; current elements:\n${fresh}`,
         mutated: true,
         summary: t('aiSumUngroup', { n: idx + 1 }),
+      }
+    }
+
+    case 'group_elements': {
+      const idx = Number(call.input.slideIndex)
+      const ids = Array.isArray(call.input.sourceIds) ? call.input.sourceIds.map(String) : []
+      const slide = slides[idx]
+      if (!slide) return fail(t('aiFailGroup'), `slideIndex out of range (0-${slides.length - 1})`)
+      if (ids.length < 2) return fail(t('aiFailGroup'), 'Grouping needs at least two element ids')
+      const missing = ids.filter((id) => !slide.nodes.some((n) => n.sourceId === id))
+      if (missing.length) {
+        // a nested id would silently do nothing, so name it rather than grouping the rest
+        return fail(
+          t('aiFailGroup'),
+          `Not top-level elements on page ${idx + 1}: ${missing.join(', ')}`,
+        )
+      }
+      const result = await window.slidesApi.groupElements({ slideIndex: idx, sourceIds: ids })
+      if (!result) return fail(t('aiFailGroup'), 'Grouping was rejected')
+      access.applySlide(idx, result.slide)
+      const fresh = collectNodeInfos(result.slide.nodes)
+        .map((n) => `${n.id} | ${n.type}${n.text ? ` | ${preview(n.text)}` : ''}`)
+        .join('\n')
+      return {
+        output: `Grouped ${ids.length} elements on page ${idx + 1} as ${result.groupId}. All element ids on this page changed; current elements:\n${fresh}`,
+        mutated: true,
+        summary: t('aiSumGroup', { n: idx + 1 }),
+      }
+    }
+
+    case 'reorder_element': {
+      const idx = Number(call.input.slideIndex)
+      const sourceId = String(call.input.sourceId ?? '')
+      const dir = String(call.input.dir ?? '')
+      const slide = slides[idx]
+      if (!slide)
+        return fail(t('aiFailReorder'), `slideIndex out of range (0-${slides.length - 1})`)
+      if (!slide.nodes.some((n) => n.sourceId === sourceId))
+        return fail(t('aiFailReorder'), `Element ${sourceId} not found on page ${idx + 1}`)
+      if (!REORDER_DIRS.has(dir))
+        return fail(t('aiFailReorder'), `dir must be one of ${[...REORDER_DIRS].join(', ')}`)
+      const updated = await window.slidesApi.reorderElement({
+        slideIndex: idx,
+        sourceId,
+        dir: dir as ReorderDirection,
+      })
+      if (!updated) return fail(t('aiFailReorder'), 'The reorder was rejected')
+      access.applySlide(idx, updated)
+      return {
+        output: `Moved ${sourceId} ${dir} on page ${idx + 1}.`,
+        mutated: true,
+        summary: t('aiSumReorder', { n: idx + 1 }),
+      }
+    }
+
+    case 'set_text_anchor': {
+      const idx = Number(call.input.slideIndex)
+      const sourceId = String(call.input.sourceId ?? '')
+      const anchor = String(call.input.anchor ?? '')
+      const slide = slides[idx]
+      if (!slide) return fail(t('aiFailAnchor'), `slideIndex out of range (0-${slides.length - 1})`)
+      const node = slide.nodes.find((n) => n.sourceId === sourceId)
+      if (!node) return fail(t('aiFailAnchor'), `Element ${sourceId} not found on page ${idx + 1}`)
+      if (!TEXT_ANCHORS.has(anchor))
+        return fail(t('aiFailAnchor'), `anchor must be one of ${[...TEXT_ANCHORS].join(', ')}`)
+      const updated = await window.slidesApi.setTextAnchor({
+        slideIndex: idx,
+        sourceId,
+        anchor: anchor as 'top' | 'middle' | 'bottom',
+      })
+      if (!updated) return fail(t('aiFailAnchor'), 'The anchor change was rejected')
+      access.applySlide(idx, updated)
+      return {
+        output: `Text in ${sourceId} anchored ${anchor} on page ${idx + 1}.`,
+        mutated: true,
+        summary: t('aiSumAnchor', { n: idx + 1 }),
+      }
+    }
+
+    case 'move_slide': {
+      const from = Number(call.input.fromIndex)
+      const to = Number(call.input.toIndex)
+      if (!slides[from])
+        return fail(t('aiFailMoveSlide'), `fromIndex out of range (0-${slides.length - 1})`)
+      if (!Number.isInteger(to) || to < 0 || to >= slides.length)
+        return fail(t('aiFailMoveSlide'), `toIndex out of range (0-${slides.length - 1})`)
+      if (from === to)
+        return {
+          output: `Page ${from + 1} is already there.`,
+          mutated: false,
+          summary: t('aiSumMoveSlide'),
+        }
+      const result = await window.slidesApi.moveSlide({ fromIndex: from, toIndex: to })
+      if (!result) return fail(t('aiFailMoveSlide'), 'The move was rejected')
+      access.applyDeck(result.slides, to)
+      return {
+        output: `Moved page ${from + 1} to position ${to + 1}. Page numbers after this point have shifted — re-read the outline before addressing pages by number.`,
+        mutated: true,
+        summary: t('aiSumMoveSlide'),
+      }
+    }
+
+    case 'set_header_footer': {
+      const op: HeaderFooterOp = { fitWidthPx: access.fitWidthPx }
+      // only the fields the model sent are applied; the rest keep their current value
+      if ('footer' in call.input) op.footer = String(call.input.footer ?? '') || null
+      if ('slideNum' in call.input) op.slideNum = Boolean(call.input.slideNum)
+      if ('date' in call.input) op.date = String(call.input.date ?? '') || null
+      if ('dateAuto' in call.input) op.dateAuto = Boolean(call.input.dateAuto)
+      if (Object.keys(op).length === 1)
+        return fail(t('aiFailHeaderFooter'), 'Nothing to change: pass footer, slideNum or date')
+      const updated = await window.slidesApi.applyHeaderFooter(op)
+      if (!updated) return fail(t('aiFailHeaderFooter'), 'The header/footer change was rejected')
+      access.applyDeck(updated)
+      const parts = [
+        op.footer !== undefined ? (op.footer ? `footer "${op.footer}"` : 'footer removed') : null,
+        op.slideNum !== undefined ? `page numbers ${op.slideNum ? 'on' : 'off'}` : null,
+        op.date !== undefined ? (op.date ? `date "${op.date}"` : 'date removed') : null,
+      ].filter(Boolean)
+      return {
+        output: `Applied to every page: ${parts.join(', ')}.`,
+        mutated: true,
+        summary: t('aiSumHeaderFooter'),
       }
     }
 
