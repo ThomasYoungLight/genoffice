@@ -738,6 +738,24 @@ export interface SetNotesOp {
   text: string
 }
 
+/** Insert an equation as a text box; coordinates are canvas pixels like the other inserts. */
+export interface AddEquationOp {
+  slideIndex: number
+  /** LaTeX source; the supported subset is the one the docs formula channel accepts */
+  latex: string
+  xPx: number
+  yPx: number
+  wPx: number
+  hPx: number
+  align?: 'left' | 'center' | 'right'
+  fontSizePt?: number
+  fitWidthPx: number
+}
+
+export type AddEquationResult =
+  | { ok: true; slide: RenderSlide; sourceId: string; fallbackText: string }
+  | { ok: false; error: string }
+
 /** One XML part of the package. `ref` is the short name, when the part has one. */
 export interface RawPartInfo {
   path: string
@@ -1244,6 +1262,8 @@ export interface SlidesApi {
   getNotes: (slideIndex: number) => Promise<string>
   /** Overwrite-write notes (into the pptx's notesSlide part); returns success */
   setNotes: (op: SetNotesOp) => Promise<boolean>
+  /** Insert an equation; the error names the LaTeX fragment the parser stopped on */
+  addEquation: (op: AddEquationOp) => Promise<AddEquationResult>
   /** Every XML part in the package, with the short name it answers to when it has one */
   rawParts: () => Promise<RawPartInfo[]>
   /** One part's XML text, or why it could not be read */

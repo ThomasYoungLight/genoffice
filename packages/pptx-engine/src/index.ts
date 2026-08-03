@@ -174,6 +174,7 @@ export {
   type ChartAxisStyle,
 } from './chart'
 export { getSlideNotes, setSlideNotes, notesPathForSlide, unescapeXml } from './notes'
+export { addEquation, equationParagraphXml, hasEquation, type EquationParagraph } from './math'
 export {
   listRawParts,
   readRawPart,

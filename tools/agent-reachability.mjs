@@ -152,6 +152,7 @@ const BASELINE = {
     'files-add-pasted-image': 'attachment intake',
     'files-read': 'attachment intake, used by read_attachment',
     print: 'user action',
+    'add-equation': 'covered by add_equation',
     'raw-get': 'covered by read_raw_xml',
     'raw-parts': 'the part listing read_raw_xml returns with no argument',
     'raw-set': 'covered by edit_raw_xml',

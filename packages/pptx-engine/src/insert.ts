@@ -30,6 +30,14 @@ export interface NewElementOptions {
   fillColor?: string
   /** Shape stroke (solid color, width in EMU) */
   stroke?: { color: string; widthEmu: number }
+  /**
+   * Ready-made `<a:p>` markup, used instead of generating paragraphs from
+   * `paragraphs`. An equation is the case that needs it: its paragraph carries
+   * an mc:AlternateContent block that the run model cannot express. When set,
+   * `paragraphs` is still used for the element's text model so the canvas has
+   * something to draw.
+   */
+  rawParagraphsXml?: string
 }
 
 let insertCounter = 1
@@ -109,9 +117,11 @@ export function buildSpXml(slide: Slide, opts: NewElementOptions): string {
   const ln = opts.stroke
     ? `<a:ln w="${Math.round(opts.stroke.widthEmu)}"><a:solidFill><a:srgbClr val="${opts.stroke.color.replace(/^#/, '').slice(0, 6).toUpperCase()}"/></a:solidFill></a:ln>`
     : ''
-  const paras = (opts.paragraphs?.length ? opts.paragraphs : [{ runs: [{ text: '' }] }])
-    .map((p) => generateParagraphXml(p))
-    .join('')
+  const paras =
+    opts.rawParagraphsXml ??
+    (opts.paragraphs?.length ? opts.paragraphs : [{ runs: [{ text: '' }] }])
+      .map((p) => generateParagraphXml(p))
+      .join('')
   return (
     `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${escapeXmlAttr(name)}"/>` +
     `<p:cNvSpPr${isTextbox ? ' txBox="1"' : ''}/><p:nvPr/></p:nvSpPr>` +

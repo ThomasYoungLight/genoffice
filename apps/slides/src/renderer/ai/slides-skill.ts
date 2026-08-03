@@ -333,6 +333,7 @@ Native tools (only for modifying/refining existing pages, not for generating fro
 - For data display use add_chart (eleven native chart types; pick by the question the page asks); for structured comparisons use add_table (cells can pre-fill text; later edit_table_cell edits cells, edit_table_structure adds/removes rows/columns); for flows/cycles/hierarchies/lists use add_smartart.
 - For a process, decision tree or dependency graph that SmartArt's fixed layouts cannot express, use insert_diagram with Mermaid source ("flowchart TD; A[Submit] --> B{Approved?}"). It lands as ordinary shapes and arrows, so any part can be moved or restyled afterwards.
 - set_slide_background sets a solid background (slideIndex=-1 for all pages); on dark backgrounds remember to lighten the text.
+- add_equation puts a real PowerPoint equation on the page from LaTeX; a text box containing "x^2" is not an equation. Our canvas shows the LaTeX source and PowerPoint typesets it, so do not try to "fix" the look with set_element_text — that replaces the equation with plain text.
 - Arranging what is already there: group_elements binds parts into one object (and ungroup_element undoes it); reorder_element fixes a shape covering text; set_text_anchor puts text at the top/middle/bottom of its box; move_slide fixes the running order. group_elements and move_slide renumber things — re-read before addressing by id or page number afterwards.
 - set_header_footer sets the footer, page numbers and date on every page at once; use it instead of drawing a text box on each page.
 - **Last resort only**: read_raw_xml / edit_raw_xml reach the .pptx XML itself, for a property no tool models. Every normal change has a tool — use it, because the tools understand the document model and raw XML does not. If you do go raw: read the part first, copy enough text that find matches exactly once, keep the edit small, and tell the user what you changed. Well-formed XML can still be invalid OOXML that PowerPoint refuses to open.
@@ -1406,6 +1407,25 @@ export const TOOLS: AgentToolDef[] = [
         sourceId: { type: 'string', description: 'Group element id' },
       },
       required: ['slideIndex', 'sourceId'],
+    },
+  },
+  {
+    name: 'add_equation',
+    description:
+      'Place a mathematical formula on a page as a real PowerPoint equation, written in LaTeX. Use it for anything with a fraction, root, exponent, sum, integral or Greek letter — a text box with "x^2" in it is not an equation and does not typeset. Supports the common LaTeX subset (\\frac \\sqrt \\sum \\int \\lim, super/subscripts, matrices, Greek); the align environment is not supported and invalid LaTeX is rejected with the fragment it stopped on. Our canvas draws the LaTeX source rather than typeset maths — PowerPoint typesets it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slideIndex: { type: 'integer', description: 'Page number (0-based)' },
+        latex: { type: 'string', description: 'LaTeX source, e.g. "E = mc^2" or "\\frac{a}{b}"' },
+        x: { type: 'number', description: 'Position and size in canvas pixels; omit to center' },
+        y: { type: 'number' },
+        w: { type: 'number' },
+        h: { type: 'number' },
+        align: { type: 'string', enum: ['left', 'center', 'right'] },
+        fontSizePt: { type: 'number', description: 'Point size; defaults to the theme size' },
+      },
+      required: ['slideIndex', 'latex'],
     },
   },
   {
@@ -4075,6 +4095,41 @@ async function executeTool(
         output: `Ungrouped ${sourceId} on page ${idx + 1} into ${node.children.length} top-level elements. All element ids on this page changed; current elements:\n${fresh}`,
         mutated: true,
         summary: t('aiSumUngroup', { n: idx + 1 }),
+      }
+    }
+
+    case 'add_equation': {
+      const idx = Number(call.input.slideIndex)
+      const slide = slides[idx]
+      if (!slide)
+        return fail(t('aiFailEquation'), `slideIndex out of range (0-${slides.length - 1})`)
+      const latex = String(call.input.latex ?? '').trim()
+      if (!latex) return fail(t('aiFailEquation'), 'latex must not be empty')
+      // a formula is wide and short; centre it on the page when no box is given
+      const w = Number(call.input.w ?? Math.round(slide.widthPx * 0.6))
+      const h = Number(call.input.h ?? 120)
+      const align = String(call.input.align ?? 'center')
+      const result = await window.slidesApi.addEquation({
+        slideIndex: idx,
+        latex,
+        xPx: Number(call.input.x ?? Math.round((slide.widthPx - w) / 2)),
+        yPx: Number(call.input.y ?? Math.round((slide.heightPx - h) / 2)),
+        wPx: w,
+        hPx: h,
+        ...(align === 'left' || align === 'right' ? { align } : {}),
+        ...(Number.isFinite(Number(call.input.fontSizePt))
+          ? { fontSizePt: Number(call.input.fontSizePt) }
+          : {}),
+        fitWidthPx: access.fitWidthPx,
+      })
+      // the parser's message names the fragment it stopped on, which is the only
+      // thing that lets the model fix the formula rather than retry it unchanged
+      if (!result.ok) return fail(t('aiFailEquation'), result.error)
+      access.applySlide(idx, result.slide)
+      return {
+        output: `Added equation ${result.sourceId} on page ${idx + 1}. PowerPoint typesets it; the canvas here shows the LaTeX source, so do not "fix" it with set_element_text — that would replace the equation with plain text.`,
+        mutated: true,
+        summary: t('aiSumEquation', { n: idx + 1 }),
       }
     }
 

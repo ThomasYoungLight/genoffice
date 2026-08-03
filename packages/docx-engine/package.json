@@ -15,6 +15,7 @@
     "fixtures": "tsx scripts/generate-fixtures.ts"
   },
   "dependencies": {
+    "@genoffice/omml": "*",
     "fast-xml-parser": "^5.3.4",
     "jszip": "^3.10.1"
   },

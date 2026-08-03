@@ -83,6 +83,7 @@ import {
   type TableStructureOp,
   type TableStyleEdit,
   EMU_PER_PT,
+  addEquation,
   editRawPart,
   listRawParts,
   readRawPart,
@@ -142,6 +143,7 @@ import { applyEditParagraphs, collectParagraphFormatPatches, levelsChanged } fro
 import { cfbKind, isCfbHeader } from './cfb-sniff'
 import { unplayableAudioCodec } from './mp4-audio-sniff'
 import type {
+  AddEquationOp,
   AddChartOp,
   AddCommentOp,
   AddElementOp,
@@ -2685,6 +2687,39 @@ export function registerSlidesIpc(): void {
     session.fitWidthPx = op.fitWidthPx
     const rebuilt = rebuildSlide(session, op.slideIndex)
     return rebuilt ? { slide: rebuilt, sourceId: r.elementId } : null
+  })
+
+  /**
+   * Insert an equation. The LaTeX parser throws on input it cannot read, and
+   * the message names the fragment it stopped on — pass it back rather than a
+   * bare null, because it is the only thing that lets the caller fix the input.
+   */
+  ipcMain.handle('slides:add-equation', (e, op: AddEquationOp) => {
+    const session = sessions.get(e.sender.id)
+    const slide = session?.opened.deck.slides[op.slideIndex]
+    if (!session || !slide) return { ok: false, error: 'No such page' }
+    const baseWidthPx = session.opened.deck.size.cx / EMU_PER_PX_96
+    const scale = op.fitWidthPx / baseWidthPx
+    const toEmu = (px: number) => Math.round((px / scale) * EMU_PER_PX_96)
+    pushHistory(session)
+    try {
+      const { element, fallbackText } = addEquation(slide, {
+        latex: op.latex,
+        offset: { x: toEmu(op.xPx), y: toEmu(op.yPx), cx: toEmu(op.wPx), cy: toEmu(op.hPx) },
+        ...(op.align ? { align: op.align } : {}),
+        ...(op.fontSizePt ? { fontSizePt: op.fontSizePt } : {}),
+      })
+      session.fitWidthPx = op.fitWidthPx
+      const rebuilt = rebuildSlide(session, op.slideIndex)
+      if (!rebuilt) {
+        session.undoStack.pop()
+        return { ok: false, error: 'The page could not be rebuilt' }
+      }
+      return { ok: true, slide: rebuilt, sourceId: element.id, fallbackText }
+    } catch (err) {
+      session.undoStack.pop()
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
   })
 
   ipcMain.handle('slides:add-image-bytes', (e, op: AddImageBytesOp) => {

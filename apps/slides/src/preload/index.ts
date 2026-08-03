@@ -222,6 +222,7 @@ const api: SlidesApi = {
   moveSlide: (op: MoveSlideOp) => ipcRenderer.invoke('slides:move-slide', op),
   getNotes: (slideIndex: number) => ipcRenderer.invoke('slides:get-notes', slideIndex),
   setNotes: (op) => ipcRenderer.invoke('slides:set-notes', op),
+  addEquation: (op) => ipcRenderer.invoke('slides:add-equation', op),
   rawParts: () => ipcRenderer.invoke('slides:raw-parts'),
   rawGet: (ref: string) => ipcRenderer.invoke('slides:raw-get', ref),
   rawSet: (op) => ipcRenderer.invoke('slides:raw-set', op),
