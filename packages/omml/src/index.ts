@@ -886,9 +886,32 @@ function naryOmml(p: LatexParser, chr: string, limLoc: 'undOvr' | 'subSup'): str
       sup = parseGroup(p)
     } else break
   }
-  // operand: the next {...} group when present, else the nary stands alone
+  /**
+   * The operand is what the operator acts on, and it has to go in `m:e`:
+   * PowerPoint and Word draw an empty `m:e` as a dotted placeholder box, so
+   * leaving it out renders `\\sum_{i=1}^{n} i` as a sum of nothing followed by
+   * a stray i.
+   *
+   * Braces are explicit, so `{...}` wins. Otherwise take a single symbol —
+   * one control sequence or one character — which is the convention for
+   * `\\sum_{i=1}^{n} i = ...` and is what Word's own editor does. Taking a whole
+   * run of ordinary characters would be too greedy and swallow the `i = ` of
+   * that example into the summand.
+   */
   skipSpaces(p)
-  const operand = peek(p) === '{' ? parseGroup(p) : ''
+  let operand = ''
+  if (peek(p) === '{') {
+    operand = parseGroup(p)
+  } else if (peek(p) === '\\') {
+    p.pos++
+    operand = parseControl(p)
+  } else {
+    const ch = peek(p)
+    if (ch !== '' && !'}^_&\n'.includes(ch)) {
+      p.pos += ch.length
+      operand = mathRun(ch)
+    }
+  }
   const pr =
     `<m:naryPr><m:chr m:val="${escapeXmlAttr(chr)}"/><m:limLoc m:val="${limLoc}"/>` +
     (sub === '' ? '<m:subHide m:val="1"/>' : '') +

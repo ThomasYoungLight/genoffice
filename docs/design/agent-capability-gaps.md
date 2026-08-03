@@ -204,11 +204,24 @@ Each item follows the pattern the recent work established:
 4. E2E in the running app for anything that crosses the IPC seam, which is where
    the last several real bugs lived.
 
-**Known hole.** We cannot verify that generated OOXML opens in Word, Excel or
-PowerPoint — none is installed in the development environment. This already
-applies to the slide equations shipped in `849281c`. Anything in this document
-that writes markup Office has to accept should get one manual check on a machine
-that has it before we call it done.
+**Office is installed on the development machine** (Word, Excel and PowerPoint
+under `/Applications`), so generated OOXML can and should be opened in the real
+application before a format feature is called done. This is not optional
+polish — the first time it was run, on the slide equations shipped in `849281c`,
+it found a bug that every layer of our own testing had passed: `\\sum_{i=1}^{n} i`
+left the n-ary operator's `m:e` slot empty and emitted the summand as a sibling,
+which Word and PowerPoint both draw as a dotted placeholder box followed by a
+stray symbol. Our tests asserted the OMML contained `<m:nary>`, which it did.
+
+Two lessons worth keeping:
+
+- **Check the exported PDF, not just the editing canvas.** PowerPoint draws
+  empty slots as dotted boxes while editing; a square root's `<m:deg/>` is
+  legitimately empty (with `degHide`) and shows a marker on canvas that is
+  absent from the rendered output. Reading the canvas alone would have produced
+  a second "bug" that does not exist.
+- A file opening without a repair prompt is necessary, not sufficient. Both
+  defects above opened cleanly.
 
 ---
 
@@ -252,8 +265,9 @@ next rather than scheduling them.
 
 Slicers, and the whole of section 4. Record the decisions; revisit on request.
 
-### Cross-cutting, do once
+### Cross-cutting, every format feature
 
-Book the Office compatibility check described under Verification, covering slide
-equations and whatever of the above has landed by then. It is the only gap in
-the verification story that engineering discipline cannot close.
+Open the result in the real Office application and check the exported PDF, per
+Verification above. Slide equations have been through this (`849281c`, fixed in
+the commit that added this section). Anything below that writes markup Office
+has to accept gets the same treatment before it is called done.

@@ -30,6 +30,29 @@ describe('latexToOmml', () => {
     expect(latexToOmml('\\Omega')).toContain('Ω')
   })
 
+  it('puts the operand of a big operator inside it', () => {
+    // an empty m:e is drawn by Word and PowerPoint as a dotted placeholder box,
+    // so a summand left outside the m:nary renders as "sum of nothing, then i"
+    const omml = latexToOmml('\\sum_{i=1}^{n} i')
+    expect(omml).not.toMatch(/<m:e><\/m:e>/)
+    expect(omml).toMatch(/<m:e><m:r><m:t[^>]*>i<\/m:t><\/m:r><\/m:e>/)
+  })
+
+  it('takes one symbol as the operand, not the whole rest of the line', () => {
+    // "\\sum_{i=1}^{n} i = ..." sums i; the "= ..." is not part of the summand
+    const omml = latexToOmml('\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}')
+    expect(omml).toMatch(/<m:e><m:r><m:t[^>]*>i<\/m:t><\/m:r><\/m:e>/)
+    expect(omml).toContain('<m:f>')
+  })
+
+  it('prefers an explicit group over the single-symbol rule', () => {
+    expect(latexToOmml('\\sum_{i=1}^{n}{a + b}')).toMatch(/<m:e><m:r><m:t[^>]*>a \+ b</)
+  })
+
+  it('leaves the slot empty when there is genuinely no operand', () => {
+    expect(latexToOmml('\\sum_{i=1}^{n}')).toMatch(/<m:e><\/m:e>/)
+  })
+
   it('rejects a formula it cannot finish reading', () => {
     expect(() => latexToOmml('\\frac{1}')).toThrow()
     expect(() => latexToOmml('{')).toThrow()
