@@ -175,6 +175,14 @@ export {
 } from './chart'
 export { getSlideNotes, setSlideNotes, notesPathForSlide, unescapeXml } from './notes'
 export {
+  listRawParts,
+  readRawPart,
+  editRawPart,
+  resolvePartPath,
+  type RawPartInfo,
+  type RawResult,
+} from './raw'
+export {
   getSlideComments,
   addSlideComment,
   deleteSlideComment,
@@ -251,7 +259,8 @@ export interface OpenedPptx {
 }
 
 /** Parse one slide from the archive (assembling the inheritance-chain ctx); shared by openPptx and duplicateSlide. */
-function parseSlideFromArchive(archive: PackageArchive, slidePath: string): Slide | null {
+/** Exported for raw.ts, which re-parses a slide after editing its XML directly. */
+export function parseSlideFromArchive(archive: PackageArchive, slidePath: string): Slide | null {
   const slideXml = archive.readText(slidePath)
   if (slideXml == null) return null
 

@@ -327,6 +327,7 @@ Native tools (only for modifying/refining existing pages, not for generating fro
 - For data display use add_chart (eleven native chart types; pick by the question the page asks); for structured comparisons use add_table (cells can pre-fill text; later edit_table_cell edits cells, edit_table_structure adds/removes rows/columns); for flows/cycles/hierarchies/lists use add_smartart.
 - For a process, decision tree or dependency graph that SmartArt's fixed layouts cannot express, use insert_diagram with Mermaid source ("flowchart TD; A[Submit] --> B{Approved?}"). It lands as ordinary shapes and arrows, so any part can be moved or restyled afterwards.
 - set_slide_background sets a solid background (slideIndex=-1 for all pages); on dark backgrounds remember to lighten the text.
+- **Last resort only**: read_raw_xml / edit_raw_xml reach the .pptx XML itself, for a property no tool models. Every normal change has a tool — use it, because the tools understand the document model and raw XML does not. If you do go raw: read the part first, copy enough text that find matches exactly once, keep the edit small, and tell the user what you changed. Well-formed XML can still be invalid OOXML that PowerPoint refuses to open.
 - Refine page by page, element by element; 2–4 elements per page is enough — fewer beats crowded.
 
 Beyond the visible page (these finish a deck; a deck without them is a draft):
@@ -1308,6 +1309,38 @@ export const TOOLS: AgentToolDef[] = [
         h: { type: 'number' },
       },
       required: ['slideIndex', 'mermaid'],
+    },
+  },
+  {
+    name: 'read_raw_xml',
+    description:
+      "Read one XML part of the .pptx package. The last resort for something no other tool exposes — an effect, an inherited property, a content-type override. Part references: '/slide[1]' (1-based, follows the visible order), '/presentation', '/theme', '/slideLayout[2]', '/slideMaster[1]', '/notesSlide[1]', or a literal zip path like 'ppt/slides/slide1.xml'. Omit part to list what is in the package. Always read before writing: edit_raw_xml matches text exactly.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        part: {
+          type: 'string',
+          description: 'Part reference; omit to list the parts instead of reading one',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'edit_raw_xml',
+    description:
+      'Replace one exact occurrence of find with replace inside an XML part. Use only when no other tool can express the change — normal edits go through the element tools, which understand the document model. find must occur exactly once, so copy enough surrounding text from read_raw_xml to be unambiguous; the edit is rejected if it matches zero or several times, if the result is not well-formed XML, or if it leaves a slide unparseable, and the part is left untouched. Well-formed XML can still be invalid OOXML that PowerPoint refuses to open, so keep edits small and tell the user what you changed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        part: { type: 'string', description: "Part reference, e.g. '/slide[1]' or '/theme'" },
+        find: {
+          type: 'string',
+          description: 'Exact XML text to replace; must occur exactly once in the part',
+        },
+        replace: { type: 'string', description: 'Replacement XML; empty string deletes the match' },
+      },
+      required: ['part', 'find', 'replace'],
     },
   },
   {
@@ -3769,6 +3802,53 @@ async function executeTool(
             : ''),
         mutated: true,
         summary: t('aiSumDiagram', { n: idx + 1 }),
+      }
+    }
+
+    case 'read_raw_xml': {
+      const part = String(call.input.part ?? '').trim()
+      if (!part) {
+        const parts = await window.slidesApi.rawParts()
+        const list = parts
+          .map(
+            (p) => `${p.ref ? `${p.ref}  ` : ''}${p.path}  (${Math.round(p.bytes / 100) / 10} KB)`,
+          )
+          .join('\n')
+        return {
+          output: `${parts.length} XML parts:\n${list}`,
+          mutated: false,
+          summary: t('aiSumRawXml'),
+        }
+      }
+      const result = await window.slidesApi.rawGet(part)
+      if (!result.ok) return fail(t('aiFailRawXml'), result.error)
+      return {
+        output: `${result.path}\n\n${result.xml}`,
+        mutated: false,
+        summary: t('aiSumRawXml'),
+      }
+    }
+
+    case 'edit_raw_xml': {
+      const part = String(call.input.part ?? '').trim()
+      const find = String(call.input.find ?? '')
+      const replace = String(call.input.replace ?? '')
+      if (!part) return fail(t('aiFailRawXml'), 'edit_raw_xml needs a part reference')
+      if (!find) return fail(t('aiFailRawXml'), 'find must not be empty')
+      const result = await window.slidesApi.rawSet({
+        ref: part,
+        find,
+        replace,
+        fitWidthPx: access.fitWidthPx,
+      })
+      // the engine's refusals are written for the model: they say what was wrong
+      // with the edit and what it should do instead, so pass them through as-is
+      if (!result.ok) return fail(t('aiFailRawXml'), result.error)
+      access.applyDeck(result.slides)
+      return {
+        output: `Edited ${result.path}; ${result.reparsedSlides} slide(s) reparsed. Raw XML bypasses the document model — check the page looks right, and tell the user what you changed.`,
+        mutated: true,
+        summary: t('aiSumRawXml'),
       }
     }
 

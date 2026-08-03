@@ -738,6 +738,32 @@ export interface SetNotesOp {
   text: string
 }
 
+/** One XML part of the package. `ref` is the short name, when the part has one. */
+export interface RawPartInfo {
+  path: string
+  ref?: string
+  bytes: number
+}
+
+export type RawGetResult = { ok: true; path: string; xml: string } | { ok: false; error: string }
+
+/**
+ * Replace one exact occurrence of `find` with `replace` inside a part. Deliberately
+ * not "here is a new part": a unique-match edit is small enough to check, and the
+ * engine refuses anything that matches zero or many times, is not well-formed, or
+ * leaves a slide unparseable.
+ */
+export interface RawSetOp {
+  ref: string
+  find: string
+  replace: string
+  fitWidthPx: number
+}
+
+export type RawSetResult =
+  | { ok: true; path: string; reparsedSlides: number; slides: RenderSlide[] }
+  | { ok: false; error: string }
+
 /** Add a comment (the author is the system username fetched by the main process). */
 export interface AddCommentOp {
   slideIndex: number
@@ -1218,6 +1244,12 @@ export interface SlidesApi {
   getNotes: (slideIndex: number) => Promise<string>
   /** Overwrite-write notes (into the pptx's notesSlide part); returns success */
   setNotes: (op: SetNotesOp) => Promise<boolean>
+  /** Every XML part in the package, with the short name it answers to when it has one */
+  rawParts: () => Promise<RawPartInfo[]>
+  /** One part's XML text, or why it could not be read */
+  rawGet: (ref: string) => Promise<RawGetResult>
+  /** Replace one exact occurrence in a part; validated and rolled back on failure */
+  rawSet: (op: RawSetOp) => Promise<RawSetResult>
   /** All comments on a page (in add order) */
   getComments: (slideIndex: number) => Promise<SlideComment[]>
   /** Add a comment; returns the page's updated comment list, null on failure */

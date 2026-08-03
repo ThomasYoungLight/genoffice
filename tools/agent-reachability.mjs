@@ -143,6 +143,18 @@ const BASELINE = {
     'table-structure': 'covered by edit_table_structure',
     'edit-chart': 'covered by edit_chart',
     'insert-model3d': 'GAP: 3D models, which no tool can insert',
+    'set-text-anchor': 'GAP: vertical text anchoring inside a shape',
+    'cloud-page-generate': 'the cloud page call behind generate_deck',
+    'html-to-pptx': 'the generation pipeline behind generate_deck',
+    'edit-image-fill': 'opens a native file dialog',
+    'insert-media': 'opens a native file dialog',
+    'export-images': 'export with a directory dialog',
+    'files-add-pasted-image': 'attachment intake',
+    'files-read': 'attachment intake, used by read_attachment',
+    print: 'user action',
+    'raw-get': 'covered by read_raw_xml',
+    'raw-parts': 'the part listing read_raw_xml returns with no argument',
+    'raw-set': 'covered by edit_raw_xml',
   },
   docs: {
     'consume-new-blank': 'app startup',
@@ -156,6 +168,9 @@ const BASELINE = {
     'save-as': 'native dialog',
     'save-new': 'native dialog',
     'write-recovery': 'crash recovery',
+    'export-pdf': 'user action with a file dialog',
+    'print-pdf-buffer': 'printing',
+    'save-merged-pdf': 'native dialog',
   },
   sheets: {
     'consume-new-blank': 'app startup',
@@ -170,7 +185,9 @@ function ipcOps(app) {
   for (const file of readdirSync(dir)) {
     if (!file.endsWith('.ts')) continue
     const src = readFileSync(join(dir, file), 'utf8')
-    for (const m of src.matchAll(/ipcMain\.handle\('([a-z0-9-]+):([a-z0-9-]+)'/g)) {
+    // prettier wraps a long registration, putting the channel on its own line —
+    // matching only same-line handles quietly hid every one of those
+    for (const m of src.matchAll(/ipcMain\.handle\(\s*'([a-z0-9-]+):([a-z0-9-]+)'/g)) {
       if (m[1] === app) ops.add(m[2])
     }
   }

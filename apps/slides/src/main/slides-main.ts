@@ -83,6 +83,9 @@ import {
   type TableStructureOp,
   type TableStyleEdit,
   EMU_PER_PT,
+  editRawPart,
+  listRawParts,
+  readRawPart,
   getSlideComments,
   getSlideNotes,
   getSlideTransition,
@@ -3252,6 +3255,43 @@ export function registerSlidesIpc(): void {
     else session.metaDirty = true
     return ok
   })
+
+  /**
+   * Raw OOXML. The read side is free — it is the package's own bytes. The write
+   * side goes through the engine's validation (unique match, well-formed result,
+   * slides still parse) and, like every other edit, onto the undo stack first,
+   * so a bad edit is one ⌘Z away rather than a damaged session.
+   */
+  ipcMain.handle('slides:raw-parts', (e) => {
+    const session = sessions.get(e.sender.id)
+    return session ? listRawParts(session.opened) : []
+  })
+
+  ipcMain.handle('slides:raw-get', (e, ref: string) => {
+    const session = sessions.get(e.sender.id)
+    if (!session) return { ok: false, error: 'No open deck' }
+    return readRawPart(session.opened, ref)
+  })
+
+  ipcMain.handle(
+    'slides:raw-set',
+    (e, op: { ref: string; find: string; replace: string; fitWidthPx: number }) => {
+      const session = sessions.get(e.sender.id)
+      if (!session) return { ok: false, error: 'No open deck' }
+      if (session.masterEdit) {
+        return { ok: false, error: 'Leave master view before editing raw XML' }
+      }
+      pushHistory(session)
+      const result = editRawPart(session.opened, op.ref, op.find, op.replace)
+      if (!result.ok) {
+        session.undoStack.pop()
+        return result
+      }
+      session.metaDirty = true
+      session.fitWidthPx = op.fitWidthPx
+      return { ...result, slides: buildAllRenderSlides(session.opened, op.fitWidthPx) }
+    },
+  )
 
   ipcMain.handle('slides:get-comments', (e, slideIndex: number) => {
     const session = sessions.get(e.sender.id)
