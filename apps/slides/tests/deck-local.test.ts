@@ -6,6 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import {
+  chartFrom,
   generateDeckLocally,
   pageContentFrom,
   tightenContent,
@@ -442,5 +443,117 @@ describe('KPI values are figures, not metric names', () => {
       { value: '◇', label: 'Decisions' },
     ])
     expect(c.kpis).toBeUndefined()
+  })
+})
+
+/**
+ * Charts on generated pages. The engine has always built native pptx charts;
+ * the local generator emitted only rectangles, text and images, so a data page
+ * came out as pipe-joined figures in a card.
+ */
+describe('chartFrom', () => {
+  const good = {
+    kind: 'bar',
+    title: 'Incidents by quarter',
+    categories: ['Q1', 'Q2', 'Q3'],
+    series: [{ name: 'Incidents', values: [18, 12, 9] }],
+    figures: 'document',
+  }
+
+  it('accepts a consistent chart', () => {
+    const c = chartFrom(good, true)
+    expect(c?.kind).toBe('bar')
+    expect(c?.series[0]!.values).toEqual([18, 12, 9])
+  })
+
+  it('rejects a series that does not line up with the categories', () => {
+    // a short series silently shifts the axis rather than failing
+    expect(chartFrom({ ...good, series: [{ name: 'x', values: [1, 2] }] }, true)).toBeUndefined()
+    expect(
+      chartFrom({ ...good, series: [{ name: 'x', values: [1, null, 3] }] }, true),
+    ).toBeUndefined()
+  })
+
+  it('rejects a chart with nothing to plot', () => {
+    expect(chartFrom({ ...good, categories: ['only'] }, true)).toBeUndefined()
+    expect(chartFrom({ ...good, series: [] }, true)).toBeUndefined()
+    expect(chartFrom({ ...good, kind: 'sankey' }, true)).toBeUndefined()
+    expect(chartFrom(null, true)).toBeUndefined()
+  })
+
+  it('downgrades a provenance claim the deck cannot support', () => {
+    // no reference material: "document" is not something the model can know
+    expect(chartFrom(good, false)?.figures).toBe('sample')
+    expect(chartFrom({ ...good, figures: 'search' }, false)?.figures).toBe('sample')
+    // with material, the claim stands
+    expect(chartFrom(good, true)?.figures).toBe('document')
+    // an unrecognised claim is treated as illustrative
+    expect(chartFrom({ ...good, figures: 'trust me' }, true)?.figures).toBe('sample')
+  })
+
+  it('keeps at most four series and twelve categories', () => {
+    const many = {
+      ...good,
+      categories: Array.from({ length: 20 }, (_, i) => `c${i}`),
+      series: Array.from({ length: 8 }, (_, i) => ({
+        name: `s${i}`,
+        values: Array.from({ length: 20 }, () => 1),
+      })),
+    }
+    const c = chartFrom(many, true)!
+    expect(c.categories).toHaveLength(12)
+    expect(c.series).toHaveLength(4)
+    expect(c.series[0]!.values).toHaveLength(12)
+  })
+})
+
+describe('generateDeckLocally with a chart page', () => {
+  it('emits a chart element and reports illustrative figures', async () => {
+    const pages = plan(1)
+    pages[0]!.type = 'data'
+    pages[0]!.layout = 'chart_with_insight'
+    const { args, landed } = harness({
+      pages,
+      planPageContent: async () => ({
+        ok: true,
+        content: {
+          title: 'Incidents fell through the year',
+          bullets: ['Down 50% since Q1'],
+          chart: {
+            kind: 'line',
+            categories: ['Q1', 'Q2', 'Q3'],
+            series: [{ name: 'Incidents', values: [18, 12, 9] }],
+            figures: 'document',
+          },
+        },
+      }),
+    })
+    const result = await generateDeckLocally(args)
+
+    const chart = landed[0]!.page.elements.find((e) => e.kind === 'chart')
+    expect(chart).toBeDefined()
+    if (chart?.kind !== 'chart') throw new Error('expected a chart element')
+    expect(chart.chart.kind).toBe('line')
+    // no context was supplied, so the "document" claim is downgraded and reported
+    expect(chart.chart.figures).toBe('sample')
+    expect(result.illustrative).toEqual([1])
+  })
+
+  it('falls back when the model gives a chart page no usable data', async () => {
+    const pages = plan(1)
+    pages[0]!.type = 'data'
+    pages[0]!.layout = 'chart_with_insight'
+    const { args, landed } = harness({
+      pages,
+      planPageContent: async () => ({
+        ok: true,
+        content: { title: 'No data', bullets: ['a', 'b'], chart: { kind: 'bar' } },
+      }),
+    })
+    const result = await generateDeckLocally(args)
+    expect(landed[0]!.page.elements.some((e) => e.kind === 'chart')).toBe(false)
+    expect(result.illustrative).toEqual([])
+    // the page still lands, carrying its bullets
+    expect(result.landed).toBe(1)
   })
 })

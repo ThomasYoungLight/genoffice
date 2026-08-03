@@ -19,6 +19,14 @@ import {
  * than spotted one deck at a time.
  */
 
+const CHART = {
+  kind: 'bar' as const,
+  title: 'Revenue by quarter',
+  categories: ['Q1', 'Q2', 'Q3', 'Q4'],
+  series: [{ name: 'Revenue', values: [12, 15, 14, 18] }],
+  figures: 'document' as const,
+}
+
 const CONTENT: PageContent = {
   title: 'Q3 delivered momentum, but Q4 needs focus',
   subtitle: 'Board review — November',
@@ -40,6 +48,7 @@ const CONTENT: PageContent = {
   figure: { value: '18%', caption: 'quarter-over-quarter revenue growth' },
   source: 'Source: internal finance reporting, October 2026',
   imageUrl: 'https://example.com/photo.jpg',
+  chart: CHART,
 }
 
 const ALL: LayoutId[] = [
@@ -50,6 +59,7 @@ const ALL: LayoutId[] = [
   'big_number',
   'kpis',
   'comparison',
+  'chart',
   'closing',
 ]
 
@@ -132,6 +142,7 @@ describe('layoutPage with more content than the slot expects', () => {
     },
     source:
       'Source: a provenance line that is itself rather long, naming several documents at once',
+    chart: CHART,
   }
 
   it.each(ALL)('keeps flooded content inside the canvas: %s', (layout) => {
@@ -451,6 +462,7 @@ describe('full-width text', () => {
     ],
     figure: { value: '18%', caption: '环比收入增长，连续六个季度最高' },
     source: '来源：内部财务报表，二零二六年十月',
+    chart: { ...CHART, title: '各季度收入' },
   }
 
   it('measures a wide glyph as wider than a latin one', () => {

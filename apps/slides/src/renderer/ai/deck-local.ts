@@ -2,6 +2,7 @@ import {
   layoutPage,
   normalizeLayout,
   themeFor,
+  type DeckChart,
   type LayoutId,
   type PageContent,
   type RenderedPage,
@@ -75,6 +76,8 @@ export interface LocalDeckArgs extends LocalDeckDeps {
 
 export interface LocalDeckResult {
   landed: number
+  /** 1-based pages whose chart carries illustrative rather than measured numbers */
+  illustrative: number[]
   /** aligned with `pages`: whether each page made it onto the canvas */
   doneFlags: boolean[]
   /** aligned with `pages`: last failure reason, when there was one */
@@ -135,6 +138,7 @@ export function pageContentFrom(
   raw: unknown,
   fallbackTitle: string,
   imageUrl?: string,
+  hasContext = false,
 ): PageContent {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const figureRaw =
@@ -160,6 +164,7 @@ export function pageContentFrom(
       ? kpiItems.slice(0, 3).map((k) => ({ heading: k.value, body: k.label }))
       : []
   const cardList = cards.length ? cards : salvaged
+  const chart = chartFrom(r.chart, hasContext)
   return {
     title: str(r.title) || fallbackTitle,
     ...(str(r.subtitle) ? { subtitle: str(r.subtitle) } : {}),
@@ -167,8 +172,53 @@ export function pageContentFrom(
     ...(cardList.length ? { cards: cardList } : {}),
     ...(kpis.length ? { kpis } : {}),
     ...(figureValue ? { figure: { value: figureValue, caption: str(figureRaw?.caption) } } : {}),
+    ...(chart ? { chart } : {}),
     ...(str(r.source) ? { source: str(r.source) } : {}),
     ...(imageUrl ? { imageUrl } : {}),
+  }
+}
+
+const CHART_KINDS = new Set(['bar', 'barH', 'barStacked', 'line', 'area', 'pie', 'doughnut'])
+
+/**
+ * Chart data out of model output.
+ *
+ * Rejected unless it is internally consistent — every series the same length
+ * as the categories, at least one real number — because a chart with a ragged
+ * series renders as a broken axis rather than an error. `figures` records
+ * where the numbers came from and defaults to 'sample': a deck generated
+ * without source material must not present invented numbers as measured ones,
+ * which is the same rule the add_chart tool enforces.
+ */
+export function chartFrom(raw: unknown, hasContext: boolean): DeckChart | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const r = raw as Record<string, unknown>
+  const kind = str(r.kind)
+  const categories = strList(r.categories, 12)
+  if (!CHART_KINDS.has(kind) || categories.length < 2) return undefined
+  const series: Array<{ name: string; values: number[] }> = []
+  for (const item of Array.isArray(r.series) ? r.series : []) {
+    if (!item || typeof item !== 'object') continue
+    const rec = item as Record<string, unknown>
+    const values = (Array.isArray(rec.values) ? rec.values : [])
+      .map((v) => (typeof v === 'number' && Number.isFinite(v) ? v : Number.NaN))
+      .slice(0, categories.length)
+    // a series shorter than the categories would silently shift the axis
+    if (values.length !== categories.length || values.some((v) => Number.isNaN(v))) continue
+    series.push({ name: str(rec.name) || `Series ${series.length + 1}`, values })
+    if (series.length === 4) break
+  }
+  if (series.length === 0) return undefined
+  const declared = str(r.figures)
+  const figures: DeckChart['figures'] =
+    declared === 'document' || declared === 'search' ? (hasContext ? declared : 'sample') : 'sample'
+  const title = str(r.title)
+  return {
+    kind: kind as DeckChart['kind'],
+    ...(title ? { title } : {}),
+    categories,
+    series,
+    figures,
   }
 }
 
@@ -233,10 +283,11 @@ export async function generateDeckLocally(args: LocalDeckArgs): Promise<LocalDec
   const doneFlags = new Array<boolean>(total).fill(false)
   const errors = new Array<string | undefined>(total).fill(undefined)
   const theme = themeFor(args.styleSkill)
+  const illustrative: number[] = []
   let landed = 0
 
   for (let i = 0; i < total; i++) {
-    if (signal?.aborted) return { landed, doneFlags, errors, cancelled: true }
+    if (signal?.aborted) return { landed, doneFlags, errors, illustrative, cancelled: true }
     const plan = pages[i] ?? {}
     const title = str(plan.title) || `Page ${i + 1}`
     const imageUrl = imageFor(plan)
@@ -253,7 +304,7 @@ export async function generateDeckLocally(args: LocalDeckArgs): Promise<LocalDec
     let content: PageContent | null = null
     let lastErr = 'content generation failed'
     for (let attempt = 0; attempt < 2 && !content; attempt++) {
-      if (signal?.aborted) return { landed, doneFlags, errors, cancelled: true }
+      if (signal?.aborted) return { landed, doneFlags, errors, illustrative, cancelled: true }
       const r = await args.planPageContent({
         pageIndex: i + 1,
         totalPages: total,
@@ -267,7 +318,7 @@ export async function generateDeckLocally(args: LocalDeckArgs): Promise<LocalDec
         hasImage: !!imageUrl,
         signal,
       })
-      if (r.ok && r.content) content = pageContentFrom(r.content, title, imageUrl)
+      if (r.ok && r.content) content = pageContentFrom(r.content, title, imageUrl, !!args.context)
       else lastErr = r.error ?? lastErr
     }
     // A page whose content call failed twice is still worth landing: the
@@ -286,7 +337,7 @@ export async function generateDeckLocally(args: LocalDeckArgs): Promise<LocalDec
     let r = { ok: false } as Awaited<ReturnType<LocalDeckDeps['renderLocalPage']>>
     let unfixed: string[] = []
     for (let round = 0; round <= MAX_TIGHTEN; round++) {
-      if (signal?.aborted) return { landed, doneFlags, errors, cancelled: true }
+      if (signal?.aborted) return { landed, doneFlags, errors, illustrative, cancelled: true }
       r = await args.renderLocalPage({
         page: layoutPage(layout, tightenContent(base, round), theme),
         // "first" means first to land, not first planned: if page 1 failed, the
@@ -304,6 +355,7 @@ export async function generateDeckLocally(args: LocalDeckArgs): Promise<LocalDec
     if (r.ok) {
       landed += 1
       doneFlags[i] = true
+      if (base.chart?.figures === 'sample') illustrative.push(i + 1)
       errors[i] = degraded
         ? `${lastErr} (page landed with its title only)`
         : unfixed.length
@@ -315,5 +367,5 @@ export async function generateDeckLocally(args: LocalDeckArgs): Promise<LocalDec
       args.onPage?.(i, 'error', errors[i])
     }
   }
-  return { landed, doneFlags, errors, cancelled: signal?.aborted === true }
+  return { landed, doneFlags, errors, illustrative, cancelled: signal?.aborted === true }
 }

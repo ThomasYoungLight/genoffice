@@ -97,7 +97,15 @@ export function themeFor(styleHint: string | undefined): Theme {
 
 /** What this module can draw. The planner's vocabulary is mapped onto it. */
 export type LayoutId =
-  'cover' | 'bullets' | 'image_right' | 'cards' | 'big_number' | 'kpis' | 'comparison' | 'closing'
+  | 'cover'
+  | 'bullets'
+  | 'image_right'
+  | 'cards'
+  | 'big_number'
+  | 'kpis'
+  | 'comparison'
+  | 'chart'
+  | 'closing'
 
 /**
  * The planner names 15 variants (six cover treatments, and so on). Rendering
@@ -113,6 +121,7 @@ export function normalizeLayout(planned: string | undefined, type?: string): Lay
   // left_text_right_image wants the image.
   if (l.startsWith('cover')) return 'cover'
   if (l.startsWith('closing')) return 'closing'
+  if (l.includes('chart') || l.includes('graph')) return 'chart'
   if (l.includes('kpi')) return 'kpis'
   if (l.includes('big_number') || l.includes('hero_big')) return 'big_number'
   if (l.includes('comparison') || l.includes('two_by_two')) return 'comparison'
@@ -124,6 +133,19 @@ export function normalizeLayout(planned: string | undefined, type?: string): Lay
   return 'bullets'
 }
 
+/**
+ * A chart the page carries. `figures` is where the numbers came from — the
+ * same declaration add_chart enforces, because a generated deck must not
+ * present invented numbers as measured ones.
+ */
+export interface DeckChart {
+  kind: 'bar' | 'barH' | 'barStacked' | 'line' | 'area' | 'pie' | 'doughnut'
+  title?: string | undefined
+  categories: string[]
+  series: Array<{ name: string; values: number[] }>
+  figures: 'document' | 'search' | 'sample'
+}
+
 /** Content slots. A layout uses what it needs and tolerates the rest missing. */
 export interface PageContent {
   title: string
@@ -133,6 +155,8 @@ export interface PageContent {
   kpis?: Array<{ value: string; label: string }> | undefined
   /** the one figure a big_number page exists for */
   figure?: { value: string; caption: string } | undefined
+  /** a native chart, when the page's job is to show the shape of some data */
+  chart?: DeckChart | undefined
   /** provenance line for anything with numbers in it */
   source?: string | undefined
   /** resolved image URL (or a generated-image marker) */
@@ -143,6 +167,14 @@ export type ElementSpec =
   | { kind: 'rect'; x: number; y: number; w: number; h: number; fill: string }
   | { kind: 'text'; x: number; y: number; w: number; h: number; paragraphs: EditParagraph[] }
   | { kind: 'image'; x: number; y: number; w: number; h: number; url: string }
+  | {
+      kind: 'chart'
+      x: number
+      y: number
+      w: number
+      h: number
+      chart: DeckChart
+    }
 
 export interface RenderedPage {
   background: string
@@ -559,6 +591,47 @@ function comparisonPage(c: PageContent, th: Theme): RenderedPage {
 }
 
 /**
+ * Chart page: the chart takes the left two thirds, the reading of it sits on
+ * the right. A chart with no sentence beside it makes the audience find the
+ * point themselves, which is the reader's job on a report and the presenter's
+ * job on a slide — so the takeaway is part of the layout, not an extra.
+ */
+function chartPage(c: PageContent, th: Theme): RenderedPage {
+  const elements = [titleBlock(c, th)].flat()
+  const top = BODY_TOP
+  const h = CANVAS.h - top - (c.source ? M.bottom + 20 : M.bottom)
+  const chartW = Math.round((CANVAS.w - M.x * 2) * 0.62)
+  elements.push({ kind: 'chart', x: M.x, y: top, w: chartW, h, chart: c.chart! })
+
+  const noteX = M.x + chartW + M.gap * 2
+  const noteW = CANVAS.w - noteX - M.x
+  const lines = cap(c.bullets, 4)
+  if (lines.length) {
+    const fit = fitText(lines, noteW, h / 1.5, SIZES.body)
+    elements.push(
+      textBox(noteX, top, noteW, h, fit.lines, {
+        size: fit.size,
+        color: th.text,
+        font: th.bodyFont,
+        bullet: true,
+        lineSpacingPct: 150,
+      }),
+    )
+  } else if (c.subtitle) {
+    const fit = fitText([c.subtitle], noteW, h, SIZES.body)
+    elements.push(
+      textBox(noteX, top, noteW, h, fit.lines, {
+        size: fit.size,
+        color: th.muted,
+        font: th.bodyFont,
+        lineSpacingPct: 140,
+      }),
+    )
+  }
+  return withSource(c, th, { background: th.bg, elements })
+}
+
+/**
  * Closing page: title, an optional line under it, and — because a closing page
  * is often "here is what to do on Monday" — an optional short list. Without
  * the list a procedural ending has nowhere to go but the subtitle, which is
@@ -654,6 +727,7 @@ const LAYOUTS: Record<LayoutId, (c: PageContent, th: Theme) => RenderedPage> = {
   big_number: bigNumberPage,
   kpis: kpisPage,
   comparison: comparisonPage,
+  chart: chartPage,
   closing: closingPage,
 }
 
@@ -666,6 +740,7 @@ export function layoutPage(layout: LayoutId, content: PageContent, theme: Theme)
     (layout === 'cards' && !content.cards?.length) ||
     (layout === 'comparison' && !content.cards?.length) ||
     (layout === 'kpis' && !content.kpis?.length) ||
+    (layout === 'chart' && !content.chart?.series.length) ||
     (layout === 'big_number' && !content.figure)
   // Degrade to whatever the page does have rather than always to bullets: a
   // KPI page whose figures were rejected often still has cards, and rendering

@@ -930,12 +930,28 @@ const TOOLS: AgentToolDef[] = [
   {
     name: 'add_chart',
     description:
-      "Insert a chart on a page (native pptx chart, still editable in PowerPoint). categories are the x-axis categories; series is each series' name and values (length must match categories). Omit x/y/w/h to center it. dataSource declares where the numbers came from and is enforced — never present invented numbers as real data.",
+      "Insert a chart on a page (native pptx chart, still editable in PowerPoint). categories are the x-axis categories; series is each series' name and values (length must match categories). Omit x/y/w/h to center it. dataSource declares where the numbers came from and is enforced — never present invented numbers as real data.\n" +
+      'Pick by the question the chart answers: bar for comparing categories, barH when the labels are long, line for change over time, area for a cumulative total, pie or doughnut only for parts of one whole with few slices, barStacked for composition, barPercentStacked when the shares matter more than the totals, scatter for the relationship between two measures, radar to compare several dimensions of a few items, comboBarLine when one series is a different unit from the others (volume plus rate) — the last series becomes the line.',
     inputSchema: {
       type: 'object',
       properties: {
         slideIndex: { type: 'integer' },
-        kind: { type: 'string', enum: ['bar', 'barStacked', 'line', 'area', 'pie', 'doughnut'] },
+        kind: {
+          type: 'string',
+          enum: [
+            'bar',
+            'barStacked',
+            'barPercentStacked',
+            'barH',
+            'line',
+            'area',
+            'pie',
+            'doughnut',
+            'scatter',
+            'radar',
+            'comboBarLine',
+          ],
+        },
         title: { type: 'string', description: 'Chart title (optional)' },
         categories: { type: 'array', items: { type: 'string' } },
         series: {
@@ -1086,7 +1102,19 @@ const TOOLS: AgentToolDef[] = [
         sourceId: { type: 'string', description: 'Chart element id (type=chart)' },
         kind: {
           type: 'string',
-          enum: ['bar', 'barStacked', 'line', 'area', 'pie', 'doughnut'],
+          enum: [
+            'bar',
+            'barStacked',
+            'barPercentStacked',
+            'barH',
+            'line',
+            'area',
+            'pie',
+            'doughnut',
+            'scatter',
+            'radar',
+            'comboBarLine',
+          ],
           description: 'Change chart type (optional)',
         },
         categories: {
@@ -2801,6 +2829,7 @@ async function executeTool(
       const pageErrors: (string | undefined)[] = new Array(total).fill(undefined) // Last failure reason per page
       const auditWarns: string[] = [] // Content audit findings: placeholder text / near-empty pages
       const titleOnly: number[] = [] // Local path: page indexes (0-based) that landed with only their title
+      let illustrativePages: number[] = [] // Local path: 1-based pages whose chart numbers are illustrative
       let landedPages = 0
       let baseOffset = 0 // Number of existing pages before generated page 0 in the deck (>0 in append mode); used to re-insert retries at their original position
 
@@ -2859,6 +2888,7 @@ async function executeTool(
           },
         })
         landedPages = local.landed
+        illustrativePages = local.illustrative
         for (let i = 0; i < total; i++) {
           doneFlags[i] = local.doneFlags[i] ?? false
           pageErrors[i] = local.errors[i]
@@ -3141,6 +3171,12 @@ async function executeTool(
               ', ',
             )} landed with only a title — the content step failed. Fill each one in with the add_text_box / add_shape tools before telling the user the deck is done.`
         : ''
+      // A generated chart with no source material behind it is illustrative.
+      // The user has to be told that in the reply, not left to assume the
+      // numbers were measured.
+      const illustrativeMsg = illustrativePages.length
+        ? ` ⚠️ The chart${illustrativePages.length > 1 ? 's' : ''} on page ${illustrativePages.join(', ')} use illustrative figures, not measured data — say so plainly to the user, and offer to rebuild from real numbers if they have them.`
+        : ''
       // Content audit: placeholder text / near-empty pages must not be delivered as finished work
       const auditMsg = auditWarns.length
         ? ` ⚠️ Content audit: ${auditWarns.join('; ')}. Do not tell the user the deck is done — redo each flagged page in place with regenerate_slide using real content (from the attachments/context), then reply.`
@@ -3151,6 +3187,7 @@ async function executeTool(
           failMsg +
           degradedMsg +
           titleOnlyMsg +
+          illustrativeMsg +
           auditMsg +
           imageFailNote(deckImageFails) +
           progressTail,
@@ -3657,7 +3694,7 @@ async function executeTool(
         const list = await window.slidesApi.getSections()
         return { output: describe(list), mutated: false, summary: t('aiSumSections') }
       }
-      let updated: SectionInfo[] | null = null
+      let updated: SectionInfo[] | null
       if (action === 'add') {
         const at = Number(call.input.atSlideIndex)
         const name = String(call.input.name ?? '').trim()

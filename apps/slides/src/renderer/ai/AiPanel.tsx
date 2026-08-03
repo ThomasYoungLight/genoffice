@@ -769,6 +769,8 @@ export function AiPanel({
           comparison:
             '"cards": exactly 2 items to contrast, each {"heading": the side\'s name, "body": 2-3 sentences}.',
           kpis: '"kpis": 3-4 items, each {"value": the figure itself e.g. "18%" or "$4.2M", "label": what it measures, ≤5 words}.',
+          chart:
+            '"chart": {"kind": "bar"|"barH"|"barStacked"|"line"|"area"|"pie"|"doughnut", "title", "categories": 2-12 labels, "series": 1-4 of {"name", "values"} where values has exactly one number per category, "figures": "document" if the numbers are in the reference material, "search" if they came from a search, "sample" if you are illustrating a shape rather than reporting measurements} — plus "bullets": 2-4 short lines saying what the chart shows. Pick the kind from the question: bar to compare categories, barH when labels are long, line for change over time, pie only for parts of one whole.',
           big_number:
             '"figure": {"value": the single number this page exists for, "caption": what it means, ≤12 words}.',
         }
@@ -791,6 +793,10 @@ export function AiPanel({
           `What this slide must say: ${a.brief}`,
         ]
         if (a.hasImage) parts.push('An image is already placed on this slide; do not describe it.')
+        if (a.layout === 'chart' && !a.context)
+          parts.push(
+            'There is no reference material, so any numbers you choose are illustrative: set figures to "sample" and keep them plausible and round.',
+          )
         if (a.context)
           parts.push(
             `Reference material (all real names/figures/facts come from here; do not invent):\n${a.context.slice(0, 4000)}`,
@@ -844,6 +850,20 @@ export function AiPanel({
               const r = await window.slidesApi.insertImageUrl({
                 slideIndex: idx,
                 url: el.url,
+                ...box,
+                fitWidthPx,
+              })
+              if (r) applySlideRef.current(idx, r.slide)
+              continue
+            }
+            if (el.kind === 'chart') {
+              // a real pptx chart part, editable in PowerPoint afterwards
+              const r = await window.slidesApi.addChart({
+                slideIndex: idx,
+                kind: el.chart.kind,
+                ...(el.chart.title ? { title: el.chart.title } : {}),
+                categories: el.chart.categories,
+                series: el.chart.series,
                 ...box,
                 fitWidthPx,
               })
