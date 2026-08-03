@@ -1,7 +1,7 @@
 import type { Editor } from '@tiptap/core'
 import type { AgentSkill } from '@genoffice/agent-core'
 import { AGENT_SYSTEM_PROMPT, buildDocContext, type AiTrack, type NumIds } from './protocol'
-import { AGENT_TOOLS, executeTool } from './tools'
+import { AGENT_TOOLS, executeTool, type DocExtras } from './tools'
 
 /**
  * The docx capability as an AgentSkill: document skeleton context, the five
@@ -12,12 +12,14 @@ export function createDocsSkill(
   getEditor: () => Editor,
   getNumIds: () => NumIds,
   getTrack?: () => AiTrack | undefined,
+  /** footnotes, watermark and sources: document parts held outside the editor tree */
+  getExtras?: () => DocExtras | undefined,
 ): AgentSkill {
   return {
     id: 'docx',
     systemPrompt: AGENT_SYSTEM_PROMPT,
     tools: AGENT_TOOLS,
     buildContext: () => buildDocContext(getEditor()),
-    executeTool: (call) => executeTool(getEditor(), call, getNumIds(), getTrack?.()),
+    executeTool: (call) => executeTool(getEditor(), call, getNumIds(), getTrack?.(), getExtras?.()),
   }
 }

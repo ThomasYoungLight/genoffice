@@ -308,7 +308,8 @@ export const appStrings = defineStrings({
     appOpenedFile: 'Opened {name}',
     appOpenFailed: 'Open failed: {error}',
     appFontsMissing: 'Missing document fonts: {names} (substitutes shown)',
-    appVerticalTextNotice: 'This document contains vertical text (shown horizontally for now; saving is unaffected)',
+    appVerticalTextNotice:
+      'This document contains vertical text (shown horizontally for now; saving is unaffected)',
     appNewDocCreated:
       'Blank document created. Describe what to generate in the AI pane on the right.',
     appNewFailed: 'Failed to create document: {error}',
@@ -580,7 +581,8 @@ export const appStrings = defineStrings({
     appOpenedFile: '{name} を開きました',
     appOpenFailed: '開けませんでした: {error}',
     appFontsMissing: '文書のフォントが未インストールです: {names}（代替フォントで表示）',
-    appVerticalTextNotice: '縦書きテキストを含む文書です（現在は横書きで表示。保存には影響しません）',
+    appVerticalTextNotice:
+      '縦書きテキストを含む文書です（現在は横書きで表示。保存には影響しません）',
     appNewDocCreated: '空白の文書を作成しました。右側の AI パネルで生成したい内容を記述できます',
     appNewFailed: '新規作成に失敗しました: {error}',
     appSaveFailed: '保存に失敗しました: {error}',
@@ -882,7 +884,8 @@ export const appStrings = defineStrings({
     appOpenedFile: '{name}을(를) 열었습니다',
     appOpenFailed: '열기 실패: {error}',
     appFontsMissing: '문서 글꼴이 설치되어 있지 않습니다: {names} (대체 글꼴로 표시)',
-    appVerticalTextNotice: '세로쓰기 텍스트가 포함된 문서입니다(현재 가로쓰기로 표시되며 저장에는 영향이 없습니다)',
+    appVerticalTextNotice:
+      '세로쓰기 텍스트가 포함된 문서입니다(현재 가로쓰기로 표시되며 저장에는 영향이 없습니다)',
     appNewDocCreated:
       '빈 문서를 만들었습니다. 오른쪽 AI 패널에서 생성할 내용을 바로 입력할 수 있습니다',
     appNewFailed: '새로 만들기 실패: {error}',
@@ -1182,7 +1185,8 @@ export const appStrings = defineStrings({
     appOpenedFile: '{name} ouvert',
     appOpenFailed: "Échec de l'ouverture : {error}",
     appFontsMissing: 'Polices du document manquantes : {names} (polices de substitution affichées)',
-    appVerticalTextNotice: "Ce document contient du texte vertical (affiché horizontalement pour l'instant ; l'enregistrement n'est pas affecté)",
+    appVerticalTextNotice:
+      "Ce document contient du texte vertical (affiché horizontalement pour l'instant ; l'enregistrement n'est pas affecté)",
     appNewDocCreated:
       'Document vierge créé. Décrivez le contenu à générer dans le volet IA à droite',
     appNewFailed: 'Échec de la création du document : {error}',
@@ -1463,7 +1467,8 @@ export const appStrings = defineStrings({
     appOpenedFile: '{name} geöffnet',
     appOpenFailed: 'Öffnen fehlgeschlagen: {error}',
     appFontsMissing: 'Fehlende Dokumentschriftarten: {names} (Ersatzschriften werden angezeigt)',
-    appVerticalTextNotice: 'Dieses Dokument enthält vertikalen Text (vorerst horizontal angezeigt; das Speichern ist nicht betroffen)',
+    appVerticalTextNotice:
+      'Dieses Dokument enthält vertikalen Text (vorerst horizontal angezeigt; das Speichern ist nicht betroffen)',
     appNewDocCreated:
       'Leeres Dokument erstellt. Beschreiben Sie im KI-Bereich rechts, was generiert werden soll',
     appNewFailed: 'Erstellen des Dokuments fehlgeschlagen: {error}',
@@ -1746,7 +1751,8 @@ export const appStrings = defineStrings({
     appOpenedFile: 'Se abrió {name}',
     appOpenFailed: 'Error al abrir: {error}',
     appFontsMissing: 'Faltan fuentes del documento: {names} (se muestran sustitutas)',
-    appVerticalTextNotice: 'Este documento contiene texto vertical (se muestra horizontal por ahora; el guardado no se ve afectado)',
+    appVerticalTextNotice:
+      'Este documento contiene texto vertical (se muestra horizontal por ahora; el guardado no se ve afectado)',
     appNewDocCreated:
       'Documento en blanco creado. Describa el contenido que desea generar en el panel de IA de la derecha',
     appNewFailed: 'Error al crear el documento: {error}',
@@ -2298,7 +2304,8 @@ export const appStrings = defineStrings({
     appOpenedFile: '{name} dibuka',
     appOpenFailed: 'Gagal membuka: {error}',
     appFontsMissing: 'Font dokumen tidak tersedia: {names} (ditampilkan dengan font pengganti)',
-    appVerticalTextNotice: 'Dokumen ini berisi teks vertikal (sementara ditampilkan horizontal; penyimpanan tidak terpengaruh)',
+    appVerticalTextNotice:
+      'Dokumen ini berisi teks vertikal (sementara ditampilkan horizontal; penyimpanan tidak terpengaruh)',
     appNewDocCreated:
       'Dokumen kosong telah dibuat. Jelaskan konten yang ingin dibuat di panel AI sebelah kanan',
     appNewFailed: 'Gagal membuat dokumen: {error}',
@@ -2573,7 +2580,8 @@ export const appStrings = defineStrings({
     appOpenedFile: 'Открыт файл {name}',
     appOpenFailed: 'Не удалось открыть: {error}',
     appFontsMissing: 'Отсутствуют шрифты документа: {names} (показаны заменители)',
-    appVerticalTextNotice: 'Документ содержит вертикальный текст (пока отображается горизонтально; на сохранение это не влияет)',
+    appVerticalTextNotice:
+      'Документ содержит вертикальный текст (пока отображается горизонтально; на сохранение это не влияет)',
     appNewDocCreated: 'Создан пустой документ. Опишите содержимое для создания в панели ИИ справа',
     appNewFailed: 'Не удалось создать документ: {error}',
     appSaveFailed: 'Не удалось сохранить: {error}',
@@ -2851,7 +2859,8 @@ export const appStrings = defineStrings({
     appOpenedFile: 'تم فتح {name}',
     appOpenFailed: 'فشل الفتح: {error}',
     appFontsMissing: 'خطوط المستند غير مثبتة: {names} (تُعرض بخطوط بديلة)',
-    appVerticalTextNotice: 'يحتوي المستند على نص عمودي (يُعرض أفقيًا حاليًا؛ لا يؤثر ذلك على الحفظ)',
+    appVerticalTextNotice:
+      'يحتوي المستند على نص عمودي (يُعرض أفقيًا حاليًا؛ لا يؤثر ذلك على الحفظ)',
     appNewDocCreated:
       'تم إنشاء مستند فارغ. صِف المحتوى المراد إنشاؤه في لوحة الذكاء الاصطناعي على اليمين',
     appNewFailed: 'فشل إنشاء المستند: {error}',
@@ -3122,7 +3131,8 @@ export const appStrings = defineStrings({
     appOpenedFile: '{name} aberto',
     appOpenFailed: 'Falha ao abrir: {error}',
     appFontsMissing: 'Fontes do documento ausentes: {names} (substitutas exibidas)',
-    appVerticalTextNotice: 'Este documento contém texto vertical (exibido horizontalmente por enquanto; o salvamento não é afetado)',
+    appVerticalTextNotice:
+      'Este documento contém texto vertical (exibido horizontalmente por enquanto; o salvamento não é afetado)',
     appNewDocCreated: 'Documento em branco criado. Descreva o que gerar no painel de IA à direita.',
     appNewFailed: 'Falha ao criar o documento: {error}',
     appSaveFailed: 'Falha ao salvar: {error}',
@@ -3397,7 +3407,8 @@ export const appStrings = defineStrings({
     appOpenedFile: '{name} aperto',
     appOpenFailed: 'Apertura non riuscita: {error}',
     appFontsMissing: 'Font del documento mancanti: {names} (mostrati sostituti)',
-    appVerticalTextNotice: 'Questo documento contiene testo verticale (mostrato orizzontalmente per ora; il salvataggio non è interessato)',
+    appVerticalTextNotice:
+      'Questo documento contiene testo verticale (mostrato orizzontalmente per ora; il salvataggio non è interessato)',
     appNewDocCreated: 'Documento vuoto creato. Descrivi cosa generare nel pannello IA a destra.',
     appNewFailed: 'Creazione del documento non riuscita: {error}',
     appSaveFailed: 'Salvataggio non riuscito: {error}',
@@ -3672,7 +3683,8 @@ export const appStrings = defineStrings({
     appOpenedFile: 'Otwarto {name}',
     appOpenFailed: 'Otwieranie nie powiodło się: {error}',
     appFontsMissing: 'Brak czcionek dokumentu: {names} (wyświetlane zamienniki)',
-    appVerticalTextNotice: 'Ten dokument zawiera tekst pionowy (na razie wyświetlany poziomo; zapis pozostaje bez zmian)',
+    appVerticalTextNotice:
+      'Ten dokument zawiera tekst pionowy (na razie wyświetlany poziomo; zapis pozostaje bez zmian)',
     appNewDocCreated: 'Utworzono pusty dokument. Opisz w panelu AI po prawej, co wygenerować.',
     appNewFailed: 'Nie udało się utworzyć dokumentu: {error}',
     appSaveFailed: 'Zapisywanie nie powiodło się: {error}',
@@ -3950,7 +3962,8 @@ export const appStrings = defineStrings({
     appOpenedFile: '{name} geopend',
     appOpenFailed: 'Openen mislukt: {error}',
     appFontsMissing: 'Ontbrekende documentlettertypen: {names} (vervangingen weergegeven)',
-    appVerticalTextNotice: 'Dit document bevat verticale tekst (voorlopig horizontaal weergegeven; opslaan wordt niet beïnvloed)',
+    appVerticalTextNotice:
+      'Dit document bevat verticale tekst (voorlopig horizontaal weergegeven; opslaan wordt niet beïnvloed)',
     appNewDocCreated:
       'Leeg document gemaakt. Beschrijf in het AI-paneel rechts wat er gegenereerd moet worden.',
     appNewFailed: 'Document maken mislukt: {error}',
@@ -4232,7 +4245,8 @@ export const appStrings = defineStrings({
     appOpenedFile: '{name} dibuka',
     appOpenFailed: 'Gagal membuka: {error}',
     appFontsMissing: 'Fon dokumen tiada: {names} (dipaparkan dengan fon ganti)',
-    appVerticalTextNotice: 'Dokumen ini mengandungi teks menegak (dipaparkan mendatar buat masa ini; penyimpanan tidak terjejas)',
+    appVerticalTextNotice:
+      'Dokumen ini mengandungi teks menegak (dipaparkan mendatar buat masa ini; penyimpanan tidak terjejas)',
     appNewDocCreated:
       'Dokumen kosong telah dibuat. Terangkan kandungan yang hendak dijana di panel AI sebelah kanan.',
     appNewFailed: 'Gagal membuat dokumen: {error}',
@@ -4776,7 +4790,8 @@ export const appStrings = defineStrings({
     appOpenedFile: '{name} खोला गया',
     appOpenFailed: 'खोलने में विफल: {error}',
     appFontsMissing: 'दस्तावेज़ के फ़ॉन्ट इंस्टॉल नहीं हैं: {names} (विकल्प फ़ॉन्ट दिखाए गए)',
-    appVerticalTextNotice: 'इस दस्तावेज़ में लंबवत पाठ है (फ़िलहाल क्षैतिज रूप में दिखाया गया है; सहेजने पर असर नहीं)',
+    appVerticalTextNotice:
+      'इस दस्तावेज़ में लंबवत पाठ है (फ़िलहाल क्षैतिज रूप में दिखाया गया है; सहेजने पर असर नहीं)',
     appNewDocCreated: 'खाली दस्तावेज़ बनाया गया। दाईं ओर AI पैनल में बताएँ कि क्या जनरेट करना है।',
     appNewFailed: 'दस्तावेज़ बनाने में विफल: {error}',
     appSaveFailed: 'सहेजने में विफल: {error}',

@@ -7,6 +7,7 @@ import { ATTACHMENT_IMAGE_EXTS } from '../../shared/ipc'
 import type { PmNode } from '../editor/convert'
 import { findNumId, type NumIds } from './protocol'
 import { createDocsSkill } from './docs-skill'
+import type { DocExtras } from './tools'
 import { applyRevisionsBy } from '../editor/revisions'
 import { DOCS_AGENT_MAX_TURNS, DOCS_CONTINUE_INSTRUCTION } from './continuation'
 import { createFilesSkill } from './files-skill'
@@ -149,11 +150,14 @@ interface AiPanelProps {
   onCollapse?: () => void
   /** Absolute path of the currently open file (used for chat-history persistence) */
   filePath?: string | null
+  /** footnotes, watermark and sources — document parts held outside the editor tree */
+  docExtras?: DocExtras
 }
 
 export function AiPanel({
   editor,
   blocks,
+  docExtras,
   settings,
   onSettingsChange,
   docEmpty,
@@ -206,6 +210,9 @@ export function AiPanel({
 
   // latest props for the loop's closures (the loop instance outlives renders)
   const editorRef = useRef(editor)
+  // read through a ref: the skill is built once, the accessor changes per render
+  const docExtrasRef = useRef(docExtras)
+  docExtrasRef.current = docExtras
   editorRef.current = editor
   const settingsRef = useRef(settings)
   settingsRef.current = settings
@@ -356,6 +363,7 @@ export function AiPanel({
           () => editorRef.current,
           numIds,
           () => (trackChangesRef.current ? { author: AI_REVISION_AUTHOR } : undefined),
+          () => docExtrasRef.current,
         ),
         createFilesSkill(() => attachmentsRef.current),
       ]),

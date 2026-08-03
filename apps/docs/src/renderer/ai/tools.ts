@@ -1,5 +1,5 @@
 import type { Editor } from '@tiptap/core'
-import type { ChartDisplay, NewChart } from '@genoffice/docx-engine'
+import type { ChartDisplay, NewChart, NoteInfo, SourceInfo } from '@genoffice/docx-engine'
 import type { AgentToolCall, AgentToolDef } from '../../shared/ipc'
 import { t } from '../i18n/locale'
 import { executeCommands, type Command, type CommandEnvelope } from './commands'
@@ -231,6 +231,50 @@ export const AGENT_TOOLS: AgentToolDef[] = [
       required: ['blockIndex'],
     },
   },
+  {
+    name: 'manage_notes',
+    description:
+      'Footnotes and endnotes. action=list returns the existing ones with their ids; add inserts a reference marker at the cursor and creates the note; edit and delete take an id from list (deleting renumbers the rest). Use a footnote for an aside or a source on the page it belongs to, an endnote when the document collects them at the end — not for content that belongs in the body.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['list', 'add', 'edit', 'delete'] },
+        kind: { type: 'string', enum: ['footnote', 'endnote'], description: 'default footnote' },
+        text: { type: 'string', description: 'add / edit: the note text' },
+        id: { type: 'string', description: 'edit / delete: id from action=list' },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'set_watermark',
+    description:
+      'Set or remove the page watermark — the diagonal text behind the body, for DRAFT / CONFIDENTIAL and the like. Pass an empty string to remove it. One or two words; a watermark is a status marker, not a notice.',
+    inputSchema: {
+      type: 'object',
+      properties: { text: { type: 'string', description: 'watermark text; empty removes it' } },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'manage_sources',
+    description:
+      'Bibliography sources. action=list returns them with their tags; add registers one. A source is only worth adding when the document cites it — pair it with a citation in the text. tag is the short key you cite by (e.g. "Wang2024"); type is Word\'s source type: Book, JournalArticle, InternetSite, Report, ConferenceProceedings.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['list', 'add', 'remove'] },
+        tag: { type: 'string' },
+        type: { type: 'string' },
+        author: { type: 'string' },
+        title: { type: 'string' },
+        year: { type: 'string' },
+        publisher: { type: 'string' },
+        url: { type: 'string' },
+      },
+      required: ['action'],
+    },
+  },
 ]
 
 export interface ToolExecution {
@@ -383,11 +427,38 @@ async function insertImageNode(
   }
 }
 
+/**
+ * The parts of a .docx that do not live in the editor's document tree.
+ *
+ * Footnotes, endnotes, the watermark and the bibliography sources sit in React
+ * state beside the editor and are written into the package on save. The
+ * References and Design ribbons have driven all four for a long time; the
+ * agent could reach none of them, so a document it wrote could not carry a
+ * footnote or a citation.
+ *
+ * Optional: a host that does not supply it has no tool for those parts, rather
+ * than a tool that fails when called.
+ */
+export interface DocExtras {
+  notes(kind: NoteKind): NoteInfo[]
+  /** insert a note at the cursor, returning its new id */
+  addNote(kind: NoteKind, text: string): string
+  editNote(kind: NoteKind, id: string, text: string): boolean
+  deleteNote(kind: NoteKind, id: string): boolean
+  watermark(): string | null
+  setWatermark(text: string | null): void
+  sources(): SourceInfo[]
+  setSources(list: SourceInfo[]): void
+}
+
+export type NoteKind = 'footnote' | 'endnote'
+
 export function executeTool(
   editor: Editor,
   call: AgentToolCall,
   numIds: NumIds,
   track?: AiTrack,
+  extras?: DocExtras,
 ): ToolExecution | Promise<ToolExecution> {
   // async tools (search/image insertion) take a separate Promise branch; the other sync tools keep returning synchronously (doesn't break existing tests).
   if (
@@ -639,6 +710,101 @@ export function executeTool(
         mutated: changed > 0,
         summary: outcome.summary,
       }
+    }
+
+    case 'manage_notes': {
+      if (!extras) return fail(call.name, 'Notes are not available in this window')
+      const kind: NoteKind = call.input.kind === 'endnote' ? 'endnote' : 'footnote'
+      const action = String(call.input.action ?? '')
+      const list = () => extras.notes(kind)
+      const render = (notes: NoteInfo[]) =>
+        notes.length
+          ? notes.map((n, i) => `[${i + 1}] id=${n.id}: ${n.text}`).join('\n')
+          : `The document has no ${kind}s.`
+      if (action === 'list')
+        return { output: render(list()), mutated: false, summary: t('aiSumNotes') }
+      if (action === 'add') {
+        const text = String(call.input.text ?? '').trim()
+        if (!text) return fail(t('aiFailNotes'), 'A note needs text')
+        const id = extras.addNote(kind, text)
+        return {
+          output: `Added ${kind} id=${id} at the cursor.\n${render(list())}`,
+          mutated: true,
+          summary: t('aiSumNotes'),
+        }
+      }
+      const id = String(call.input.id ?? '')
+      if (!id) return fail(t('aiFailNotes'), `${action} needs the note id from action=list`)
+      if (action === 'edit') {
+        const text = String(call.input.text ?? '').trim()
+        if (!text) return fail(t('aiFailNotes'), 'A note needs text')
+        if (!extras.editNote(kind, id, text)) return fail(t('aiFailNotes'), `No ${kind} id=${id}`)
+        return { output: render(list()), mutated: true, summary: t('aiSumNotes') }
+      }
+      if (action === 'delete') {
+        if (!extras.deleteNote(kind, id)) return fail(t('aiFailNotes'), `No ${kind} id=${id}`)
+        return {
+          output: `Deleted ${kind} id=${id}; the remaining markers were renumbered.\n${render(list())}`,
+          mutated: true,
+          summary: t('aiSumNotes'),
+        }
+      }
+      return fail(t('aiFailNotes'), `Unknown action "${action}"`)
+    }
+
+    case 'set_watermark': {
+      if (!extras) return fail(call.name, 'The watermark is not available in this window')
+      const text = String(call.input.text ?? '').trim()
+      extras.setWatermark(text || null)
+      return {
+        output: text ? `Watermark set to "${text}".` : 'Watermark removed.',
+        mutated: true,
+        summary: t('aiSumWatermark'),
+      }
+    }
+
+    case 'manage_sources': {
+      if (!extras) return fail(call.name, 'Sources are not available in this window')
+      const action = String(call.input.action ?? '')
+      const render = (list: SourceInfo[]) =>
+        list.length
+          ? list.map((s) => `${s.tag} — ${s.author}, ${s.title} (${s.year}) [${s.type}]`).join('\n')
+          : 'The document has no bibliography sources.'
+      if (action === 'list')
+        return { output: render(extras.sources()), mutated: false, summary: t('aiSumSources') }
+      if (action === 'add') {
+        const tag = String(call.input.tag ?? '').trim()
+        const title = String(call.input.title ?? '').trim()
+        if (!tag || !title)
+          return fail(t('aiFailSources'), 'A source needs at least a tag and a title')
+        const current = extras.sources()
+        if (current.some((s) => s.tag === tag))
+          return fail(t('aiFailSources'), `A source tagged "${tag}" already exists`)
+        const publisher = String(call.input.publisher ?? '').trim()
+        const url = String(call.input.url ?? '').trim()
+        extras.setSources([
+          ...current,
+          {
+            tag,
+            type: String(call.input.type ?? 'Book').trim() || 'Book',
+            author: String(call.input.author ?? '').trim(),
+            title,
+            year: String(call.input.year ?? '').trim(),
+            ...(publisher ? { publisher } : {}),
+            ...(url ? { url } : {}),
+          },
+        ])
+        return { output: render(extras.sources()), mutated: true, summary: t('aiSumSources') }
+      }
+      if (action === 'remove') {
+        const tag = String(call.input.tag ?? '').trim()
+        const current = extras.sources()
+        if (!current.some((s) => s.tag === tag))
+          return fail(t('aiFailSources'), `No source tagged "${tag}"`)
+        extras.setSources(current.filter((s) => s.tag !== tag))
+        return { output: render(extras.sources()), mutated: true, summary: t('aiSumSources') }
+      }
+      return fail(t('aiFailSources'), `Unknown action "${action}"`)
     }
 
     default:

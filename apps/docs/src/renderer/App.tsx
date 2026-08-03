@@ -13,6 +13,7 @@ import {
   type CustomNumberingLevel,
   type DocProtection,
   type HeaderFooter,
+  nextNoteId,
   type NoteInfo,
   type SectionInfo,
   type SectionSettings,
@@ -23,6 +24,7 @@ import {
 } from '@genoffice/docx-engine'
 import type { AiSettings, OpenFileResult } from '../shared/ipc'
 import { AI_PROVIDERS } from '../shared/ipc'
+import type { DocExtras } from './ai/tools'
 import { AiPanel } from './ai/AiPanel'
 import { asianCharCount, countWords, nonAsianWordCount } from './word-count'
 import { toRoman } from './note-format'
@@ -1256,6 +1258,54 @@ export function App() {
   }, [])
 
   const submitNote = useCallback((text: string) => submitNoteImpl(reviewCtxRef.current, text), [])
+
+  const extrasStateRef = useRef({ watermark, sources })
+  extrasStateRef.current = { watermark, sources }
+
+  /**
+   * The agent's handle on the document parts that are not in the editor tree.
+   * It goes through the same functions the References and Design ribbons call,
+   * so an AI-inserted footnote is indistinguishable from a hand-inserted one
+   * and lands in the same save path.
+   */
+  const docExtras = useMemo<DocExtras>(
+    () => ({
+      notes: (kind: 'footnote' | 'endnote') =>
+        kind === 'footnote' ? reviewCtxRef.current.footnotes : reviewCtxRef.current.endnotes,
+      addNote: (kind: 'footnote' | 'endnote', text: string) => {
+        const list =
+          kind === 'footnote' ? reviewCtxRef.current.footnotes : reviewCtxRef.current.endnotes
+        const id = nextNoteId(list)
+        submitNoteImpl({ ...reviewCtxRef.current, notePrompt: { kind } }, text)
+        return id
+      },
+      editNote: (kind: 'footnote' | 'endnote', id: string, text: string) => {
+        const list =
+          kind === 'footnote' ? reviewCtxRef.current.footnotes : reviewCtxRef.current.endnotes
+        if (!list.some((n) => n.id === id)) return false
+        submitNoteImpl({ ...reviewCtxRef.current, notePrompt: { kind, id } }, text)
+        return true
+      },
+      deleteNote: (kind: 'footnote' | 'endnote', id: string) => {
+        const list =
+          kind === 'footnote' ? reviewCtxRef.current.footnotes : reviewCtxRef.current.endnotes
+        if (!list.some((n) => n.id === id)) return false
+        deleteNoteImpl(reviewCtxRef.current, kind, id)
+        return true
+      },
+      watermark: () => extrasStateRef.current.watermark,
+      setWatermark: (text: string | null) => {
+        setWatermark(text)
+        setWatermarkDirty(true)
+      },
+      sources: () => extrasStateRef.current.sources,
+      setSources: (list: SourceInfo[]) => {
+        setSources(list)
+        setSourcesDirty(true)
+      },
+    }),
+    [],
+  )
 
   const deleteNote = useCallback(
     (kind: 'footnote' | 'endnote', id: string) => deleteNoteImpl(reviewCtxRef.current, kind, id),
@@ -2495,6 +2545,7 @@ export function App() {
                     : null
                 }
                 preset={aiPreset}
+                docExtras={docExtras}
                 onCollapse={() => setShowAi(false)}
                 filePath={doc?.filePath ?? null}
               />

@@ -112,6 +112,8 @@ export const AGENT_SYSTEM_PROMPT = [
   '- Web search: use web_search when you need up-to-date information/data/fact checking; search before writing about uncertain facts — do not fabricate;',
   '- Illustrations: when the user wants pictures, first image_search (English keywords work better) → pick a suitable result → insert_image with its imageUrl to insert into the document;',
   '- Charts: use insert_chart for data visualization (bar/line/pie; saved as native Word charts); use edit_chart to change the data of an existing chart block in the block list; data must be real, from the document or search results;',
+  '- Footnotes and endnotes: manage_notes. A footnote carries an aside or a source on the page it belongs to — not content that belongs in the body. When the user asks for citations or references in an academic sense, register the work with manage_sources and cite it, rather than writing a bare footnote.',
+  '- Watermark: set_watermark for DRAFT / CONFIDENTIAL and the like — one or two words, and only when asked.',
   '- One reply may chain multiple tools; after everything is done, always finish with a short plain-text summary.',
   '',
   '# HTML fragment rules',

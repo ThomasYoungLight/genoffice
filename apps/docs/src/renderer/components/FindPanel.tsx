@@ -187,12 +187,26 @@ export function FindPanel({ editor, onClose }: FindPanelProps) {
           W
         </button>
         <span className="find-count">
-          {query ? (matches.length === 0 ? t('appNoResults') : `${index + 1}/${matches.length}`) : ''}
+          {query
+            ? matches.length === 0
+              ? t('appNoResults')
+              : `${index + 1}/${matches.length}`
+            : ''}
         </span>
-        <button className="find-btn" title={t('appPrevMatch')} onClick={() => step(-1)} disabled={matches.length === 0}>
+        <button
+          className="find-btn"
+          title={t('appPrevMatch')}
+          onClick={() => step(-1)}
+          disabled={matches.length === 0}
+        >
           ‹
         </button>
-        <button className="find-btn" title={t('appNextMatch')} onClick={() => step(1)} disabled={matches.length === 0}>
+        <button
+          className="find-btn"
+          title={t('appNextMatch')}
+          onClick={() => step(1)}
+          disabled={matches.length === 0}
+        >
           ›
         </button>
         <button className="find-btn find-close" title={t('appCloseEsc')} onClick={close}>

@@ -86,7 +86,9 @@ function fixtureDoc(): JsonNode[] {
         docxIndex: 0,
       },
     ),
-    para([text('GenSpark intro,'), text('GenSpark is great', [{ type: 'bold' }])], { docxIndex: 1 }),
+    para([text('GenSpark intro,'), text('GenSpark is great', [{ type: 'bold' }])], {
+      docxIndex: 1,
+    }),
     heading([text('Risk Notes')], 2, { docxIndex: 2 }),
     para([text('Body paragraph')], { docxIndex: 3, align: 'center' }),
     listItem([text('List item')], { docxIndex: 4, numId: '1' }),
@@ -133,7 +135,9 @@ describe('updateTextStyle', () => {
   it('null clears one attr, keeping the others; mark removed when all attrs empty', () => {
     const editor = createEditor([
       para([
-        text('red text', [{ type: 'docTextStyle', attrs: { color: 'FF0000', sizeHalfPoints: 24 } }]),
+        text('red text', [
+          { type: 'docTextStyle', attrs: { color: 'FF0000', sizeHalfPoints: 24 } },
+        ]),
       ]),
       para([text('color only', [{ type: 'docTextStyle', attrs: { color: '00FF00' } }])]),
     ])

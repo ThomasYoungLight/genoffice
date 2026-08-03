@@ -1384,12 +1384,20 @@ function protectedDomSpec(node: PmNode): DomSpec {
     return [
       'div',
       attrs,
-      ['span', { class: 'doc-ole-wrap' }, ['img', { src: String(imageDataUrl), class: 'doc-ole-img' }]],
+      [
+        'span',
+        { class: 'doc-ole-wrap' },
+        ['img', { src: String(imageDataUrl), class: 'doc-ole-img' }],
+      ],
       ['span', { class: 'doc-protected-label' }, oleCaption ?? String(label)],
     ]
   }
   const children: unknown[] = [
-    ['span', { class: 'doc-protected-label' }, oleCaption ?? String(label || t('editorProtectedContent'))],
+    [
+      'span',
+      { class: 'doc-protected-label' },
+      oleCaption ?? String(label || t('editorProtectedContent')),
+    ],
   ]
   if (previewText) children.push(['span', { class: 'doc-protected-preview' }, String(previewText)])
   return ['div', attrs, ...children]

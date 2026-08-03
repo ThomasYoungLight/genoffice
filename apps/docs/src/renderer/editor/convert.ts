@@ -1394,7 +1394,8 @@ export function inlineToRuns(content: PmNode[]): Run[] {
     if (node.type === 'hardBreak') {
       const ch = node.attrs?.pageBreak ? '\f' : '\n'
       const prev = runs[runs.length - 1]
-      const prevAtomic = prev && (prev.noteRef || prev.xeTerm !== undefined || prev.math || prev.ruby)
+      const prevAtomic =
+        prev && (prev.noteRef || prev.xeTerm !== undefined || prev.math || prev.ruby)
       if (prev && !prevAtomic) prev.text += ch
       else runs.push({ text: ch })
       continue
