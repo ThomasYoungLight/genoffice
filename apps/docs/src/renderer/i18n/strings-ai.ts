@@ -87,6 +87,9 @@ export const aiStrings = defineStrings({
     aiFailSources: '参考文献',
     aiSumNotes: '脚注/尾注',
     aiSumWatermark: '设置水印',
+    aiSumPageSetup: '页面设置',
+    aiSumHeaderFooter: '页眉页脚',
+    aiSumPageBreak: '分页符',
     aiSumSources: '参考文献来源',
     aiCmdNone: '没有命中需要修改的块,文档未改动。',
     aiCmdNoneSkipped:
@@ -193,6 +196,9 @@ export const aiStrings = defineStrings({
     aiFailSources: 'Sources',
     aiSumNotes: 'Footnotes / endnotes',
     aiSumWatermark: 'Watermark set',
+    aiSumPageSetup: 'Page setup',
+    aiSumHeaderFooter: 'Header and footer',
+    aiSumPageBreak: 'Page break',
     aiSumSources: 'Bibliography sources',
     aiCmdNone: 'No matching blocks; the document was not changed.',
     aiCmdNoneSkipped:
@@ -299,6 +305,9 @@ export const aiStrings = defineStrings({
     aiFailSources: '参考文献',
     aiSumNotes: '脚注・文末脚注',
     aiSumWatermark: '透かしを設定',
+    aiSumPageSetup: 'ページ設定',
+    aiSumHeaderFooter: 'ヘッダーとフッター',
+    aiSumPageBreak: '改ページ',
     aiSumSources: '参考文献ソース',
     aiCmdNone: '変更対象のブロックが見つからなかったため、文書は変更されていません。',
     aiCmdNoneSkipped:
@@ -405,6 +414,9 @@ export const aiStrings = defineStrings({
     aiFailSources: '원본',
     aiSumNotes: '각주/미주',
     aiSumWatermark: '워터마크 설정',
+    aiSumPageSetup: '페이지 설정',
+    aiSumHeaderFooter: '머리글 및 바닥글',
+    aiSumPageBreak: '페이지 나누기',
     aiSumSources: '참고 문헌 원본',
     aiCmdNone: '수정할 블록이 없어 문서가 변경되지 않았습니다.',
     aiCmdNoneSkipped:
@@ -513,6 +525,9 @@ export const aiStrings = defineStrings({
     aiFailSources: 'Sources',
     aiSumNotes: 'Notes de bas de page / de fin',
     aiSumWatermark: 'Filigrane défini',
+    aiSumPageSetup: 'Mise en page',
+    aiSumHeaderFooter: 'En-tête et pied de page',
+    aiSumPageBreak: 'Saut de page',
     aiSumSources: 'Sources bibliographiques',
     aiCmdNone: "Aucun bloc correspondant ; le document n'a pas été modifié.",
     aiCmdNoneSkipped:
@@ -620,6 +635,9 @@ export const aiStrings = defineStrings({
     aiFailSources: 'Quellen',
     aiSumNotes: 'Fuß-/Endnoten',
     aiSumWatermark: 'Wasserzeichen gesetzt',
+    aiSumPageSetup: 'Seite einrichten',
+    aiSumHeaderFooter: 'Kopf- und Fußzeile',
+    aiSumPageBreak: 'Seitenumbruch',
     aiSumSources: 'Literaturquellen',
     aiCmdNone: 'Keine passenden Blöcke gefunden; das Dokument wurde nicht geändert.',
     aiCmdNoneSkipped:
@@ -726,6 +744,9 @@ export const aiStrings = defineStrings({
     aiFailSources: 'Fuentes',
     aiSumNotes: 'Notas al pie / al final',
     aiSumWatermark: 'Marca de agua establecida',
+    aiSumPageSetup: 'Configuración de página',
+    aiSumHeaderFooter: 'Encabezado y pie de página',
+    aiSumPageBreak: 'Salto de página',
     aiSumSources: 'Fuentes bibliográficas',
     aiCmdNone: 'No hay bloques coincidentes; el documento no se modificó.',
     aiCmdNoneSkipped:
@@ -832,6 +853,9 @@ export const aiStrings = defineStrings({
     aiFailSources: 'แหล่งข้อมูล',
     aiSumNotes: 'เชิงอรรถ/อ้างอิงท้ายเรื่อง',
     aiSumWatermark: 'ตั้งลายน้ำแล้ว',
+    aiSumPageSetup: 'ตั้งค่าหน้ากระดาษ',
+    aiSumHeaderFooter: 'หัวและท้ายกระดาษ',
+    aiSumPageBreak: 'ตัวแบ่งหน้า',
     aiSumSources: 'แหล่งข้อมูลบรรณานุกรม',
     aiCmdNone: 'ไม่พบบล็อกที่ต้องแก้ไข เอกสารไม่มีการเปลี่ยนแปลง',
     aiCmdNoneSkipped:
@@ -938,6 +962,9 @@ export const aiStrings = defineStrings({
     aiFailSources: 'Sumber',
     aiSumNotes: 'Catatan kaki / akhir',
     aiSumWatermark: 'Tanda air diatur',
+    aiSumPageSetup: 'Pengaturan halaman',
+    aiSumHeaderFooter: 'Header dan footer',
+    aiSumPageBreak: 'Pemisah halaman',
     aiSumSources: 'Sumber bibliografi',
     aiCmdNone: 'Tidak ada blok yang cocok; dokumen tidak diubah.',
     aiCmdNoneSkipped:
@@ -1044,6 +1071,9 @@ export const aiStrings = defineStrings({
     aiFailSources: 'Источники',
     aiSumNotes: 'Обычные и концевые сноски',
     aiSumWatermark: 'Подложка задана',
+    aiSumPageSetup: 'Параметры страницы',
+    aiSumHeaderFooter: 'Колонтитулы',
+    aiSumPageBreak: 'Разрыв страницы',
     aiSumSources: 'Библиографические источники',
     aiCmdNone: 'Подходящих блоков не найдено; документ не изменен.',
     aiCmdNoneSkipped:
@@ -1150,6 +1180,9 @@ export const aiStrings = defineStrings({
     aiFailSources: 'المصادر',
     aiSumNotes: 'حواشٍ سفلية/ختامية',
     aiSumWatermark: 'تم تعيين العلامة المائية',
+    aiSumPageSetup: 'إعداد الصفحة',
+    aiSumHeaderFooter: 'الرأس والتذييل',
+    aiSumPageBreak: 'فاصل صفحات',
     aiSumSources: 'مصادر المراجع',
     aiCmdNone: 'لا توجد كتل مطابقة؛ لم يتغير المستند.',
     aiCmdNoneSkipped:
@@ -1256,6 +1289,9 @@ export const aiStrings = defineStrings({
     aiFailSources: 'Fontes',
     aiSumNotes: 'Notas de rodapé / de fim',
     aiSumWatermark: "Marca d'água definida",
+    aiSumPageSetup: 'Configuração da página',
+    aiSumHeaderFooter: 'Cabeçalho e rodapé',
+    aiSumPageBreak: 'Quebra de página',
     aiSumSources: 'Fontes bibliográficas',
     aiCmdNone: 'Nenhum bloco correspondente; o documento não foi alterado.',
     aiCmdNoneSkipped:
@@ -1365,6 +1401,9 @@ export const aiStrings = defineStrings({
     aiFailSources: 'Fonti',
     aiSumNotes: 'Note a piè di pagina / di chiusura',
     aiSumWatermark: 'Filigrana impostata',
+    aiSumPageSetup: 'Imposta pagina',
+    aiSumHeaderFooter: 'Intestazione e piè di pagina',
+    aiSumPageBreak: 'Interruzione di pagina',
     aiSumSources: 'Fonti bibliografiche',
     aiCmdNone: 'Nessun blocco corrispondente; il documento non è stato modificato.',
     aiCmdNoneSkipped:
@@ -1471,6 +1510,9 @@ export const aiStrings = defineStrings({
     aiFailSources: 'Źródła',
     aiSumNotes: 'Przypisy dolne / końcowe',
     aiSumWatermark: 'Ustawiono znak wodny',
+    aiSumPageSetup: 'Ustawienia strony',
+    aiSumHeaderFooter: 'Nagłówek i stopka',
+    aiSumPageBreak: 'Podział strony',
     aiSumSources: 'Źródła bibliograficzne',
     aiCmdNone: 'Brak pasujących bloków; dokument nie został zmieniony.',
     aiCmdNoneSkipped:
@@ -1577,6 +1619,9 @@ export const aiStrings = defineStrings({
     aiFailSources: 'Bronnen',
     aiSumNotes: 'Voet-/eindnoten',
     aiSumWatermark: 'Watermerk ingesteld',
+    aiSumPageSetup: 'Pagina-instelling',
+    aiSumHeaderFooter: 'Kop- en voettekst',
+    aiSumPageBreak: 'Pagina-einde',
     aiSumSources: 'Bibliografiebronnen',
     aiCmdNone: 'Geen overeenkomende blokken; het document is niet gewijzigd.',
     aiCmdNoneSkipped:
@@ -1683,6 +1728,9 @@ export const aiStrings = defineStrings({
     aiFailSources: 'Sumber',
     aiSumNotes: 'Nota kaki / nota akhir',
     aiSumWatermark: 'Tera air ditetapkan',
+    aiSumPageSetup: 'Persediaan halaman',
+    aiSumHeaderFooter: 'Pengepala dan pengaki',
+    aiSumPageBreak: 'Pemisah halaman',
     aiSumSources: 'Sumber bibliografi',
     aiCmdNone: 'Tiada blok sepadan; dokumen tidak diubah.',
     aiCmdNoneSkipped:
@@ -1789,6 +1837,9 @@ export const aiStrings = defineStrings({
     aiFailSources: 'מקורות',
     aiSumNotes: 'הערות שוליים/סיום',
     aiSumWatermark: 'סימן המים הוגדר',
+    aiSumPageSetup: 'הגדרת עמוד',
+    aiSumHeaderFooter: 'כותרת עליונה ותחתונה',
+    aiSumPageBreak: 'מעבר עמוד',
     aiSumSources: 'מקורות ביבליוגרפיים',
     aiCmdNone: 'לא נמצאו בלוקים מתאימים; המסמך לא שונה.',
     aiCmdNoneSkipped:
@@ -1895,6 +1946,9 @@ export const aiStrings = defineStrings({
     aiFailSources: 'स्रोत',
     aiSumNotes: 'पाद/अंत टिप्पणियाँ',
     aiSumWatermark: 'वॉटरमार्क सेट',
+    aiSumPageSetup: 'पृष्ठ सेटअप',
+    aiSumHeaderFooter: 'शीर्षलेख और पादलेख',
+    aiSumPageBreak: 'पृष्ठ विराम',
     aiSumSources: 'ग्रंथसूची स्रोत',
     aiCmdNone: 'कोई मेल खाता ब्लॉक नहीं; दस्तावेज़ में बदलाव नहीं हुआ।',
     aiCmdNoneSkipped:
@@ -1999,6 +2053,9 @@ export const aiStrings = defineStrings({
     aiFailSources: '參考文獻',
     aiSumNotes: '註腳/章節附註',
     aiSumWatermark: '設定浮水印',
+    aiSumPageSetup: '頁面設定',
+    aiSumHeaderFooter: '頁首頁尾',
+    aiSumPageBreak: '分頁符號',
     aiSumSources: '參考文獻來源',
     aiCmdNone: '沒有命中需要修改的區塊,文件未變更。',
     aiCmdNoneSkipped:

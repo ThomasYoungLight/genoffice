@@ -1,5 +1,12 @@
 import type { Editor } from '@tiptap/core'
-import type { ChartDisplay, NewChart, NoteInfo, SourceInfo } from '@genoffice/docx-engine'
+import type {
+  ChartDisplay,
+  HeaderFooter,
+  NewChart,
+  NoteInfo,
+  SectionSettings,
+  SourceInfo,
+} from '@genoffice/docx-engine'
 import type { AgentToolCall, AgentToolDef } from '../../shared/ipc'
 import { t } from '../i18n/locale'
 import { executeCommands, type Command, type CommandEnvelope } from './commands'
@@ -87,6 +94,57 @@ export const AGENT_TOOLS: AgentToolDef[] = [
         },
       },
       required: ['commands'],
+    },
+  },
+  {
+    name: 'set_page_setup',
+    description:
+      'Set the page itself: paper size, orientation, margins and text columns. This is the tool for "make it landscape", "A4", "narrower margins", "two columns" — none of which can be done by editing content. Margins are in centimetres. Omit any field to leave it as it is; call with no fields to read the current setup.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pageSize: {
+          type: 'string',
+          enum: ['a4', 'a3', 'a5', 'letter', 'legal', 'tabloid'],
+          description: 'Named paper size; the orientation is applied on top of it',
+        },
+        orientation: { type: 'string', enum: ['portrait', 'landscape'] },
+        marginTopCm: { type: 'number' },
+        marginRightCm: { type: 'number' },
+        marginBottomCm: { type: 'number' },
+        marginLeftCm: { type: 'number' },
+        columns: { type: 'integer', description: 'Number of text columns; 1 is normal' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'set_header_footer',
+    description:
+      'Set the running header or footer — the line repeated on every page. text is the content; pageNumber adds an automatic page number (footer only), which is what "add page numbers" means. Call with only kind to read the current value. A header is not a heading at the top of the first page: use insert_content for that.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['header', 'footer'] },
+        text: { type: 'string', description: 'Line of text; empty string clears it' },
+        pageNumber: { type: 'boolean', description: 'Append an automatic page number (footer)' },
+      },
+      required: ['kind'],
+    },
+  },
+  {
+    name: 'insert_page_break',
+    description:
+      'Start a new page at a given point. Use it to keep a section starting at the top of a page; do not fake it with empty paragraphs, which move as soon as anything above them changes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        afterBlockIndex: {
+          type: 'integer',
+          description: 'Break after this block index; -1 = start of document',
+        },
+      },
+      required: ['afterBlockIndex'],
     },
   },
   {
@@ -449,9 +507,28 @@ export interface DocExtras {
   setWatermark(text: string | null): void
   sources(): SourceInfo[]
   setSources(list: SourceInfo[]): void
+  /** the running header/footer of the current section */
+  headerFooter(kind: 'header' | 'footer'): HeaderFooter | null
+  setHeaderFooter(kind: 'header' | 'footer', value: HeaderFooter): void
+  /** page size, orientation, margins and columns of the current section */
+  pageSetup(): SectionSettings | null
+  setPageSetup(next: SectionSettings): void
 }
 
 export type NoteKind = 'footnote' | 'endnote'
+
+/** Twips per unit, for the page-setup tool's human-facing measurements. */
+const TWIPS = { cm: 567, inch: 1440 } as const
+
+/** Named page sizes, in twips, portrait. */
+const PAGE_SIZES: Record<string, { w: number; h: number }> = {
+  a4: { w: 11906, h: 16838 },
+  a3: { w: 16838, h: 23811 },
+  a5: { w: 8391, h: 11906 },
+  letter: { w: 12240, h: 15840 },
+  legal: { w: 12240, h: 20160 },
+  tabloid: { w: 15840, h: 24480 },
+}
 
 export function executeTool(
   editor: Editor,
@@ -750,6 +827,146 @@ export function executeTool(
         }
       }
       return fail(t('aiFailNotes'), `Unknown action "${action}"`)
+    }
+
+    case 'set_page_setup': {
+      if (!extras) return fail(call.name, 'Page setup is not available in this window')
+      const current = extras.pageSetup()
+      if (!current) return fail(call.name, 'This document has no section settings to change')
+      const cm = (twips: number) => Math.round((twips / TWIPS.cm) * 100) / 100
+      const describe = (s: SectionSettings) =>
+        `${s.orientation}, ${cm(s.pageWidth)}\u00d7${cm(s.pageHeight)} cm, margins ` +
+        `T${cm(s.marginTop)} R${cm(s.marginRight)} B${cm(s.marginBottom)} L${cm(s.marginLeft)} cm` +
+        (s.columns > 1 ? `, ${s.columns} columns` : '')
+      const fields = [
+        'pageSize',
+        'orientation',
+        'marginTopCm',
+        'marginRightCm',
+        'marginBottomCm',
+        'marginLeftCm',
+        'columns',
+      ]
+      if (!fields.some((f) => f in call.input)) {
+        return {
+          output: `Current page setup: ${describe(current)}.`,
+          mutated: false,
+          summary: t('aiSumPageSetup'),
+        }
+      }
+      const next: SectionSettings = { ...current }
+      const sizeKey = String(call.input.pageSize ?? '')
+      if (sizeKey) {
+        const size = PAGE_SIZES[sizeKey]
+        if (!size)
+          return fail(
+            call.name,
+            `Unknown pageSize "${sizeKey}"; use one of ${Object.keys(PAGE_SIZES).join(', ')}`,
+          )
+        next.pageWidth = size.w
+        next.pageHeight = size.h
+        // a named size is portrait; the existing orientation still applies unless
+        // the same call changes it, so swap here and let the check below re-swap
+        next.orientation = 'portrait'
+      }
+      const orientation =
+        String(call.input.orientation ?? '') || (sizeKey ? current.orientation : '')
+      if (orientation === 'landscape' || orientation === 'portrait') {
+        const long = Math.max(next.pageWidth, next.pageHeight)
+        const short = Math.min(next.pageWidth, next.pageHeight)
+        next.orientation = orientation
+        next.pageWidth = orientation === 'landscape' ? long : short
+        next.pageHeight = orientation === 'landscape' ? short : long
+      }
+      const margins: Array<[string, keyof SectionSettings]> = [
+        ['marginTopCm', 'marginTop'],
+        ['marginRightCm', 'marginRight'],
+        ['marginBottomCm', 'marginBottom'],
+        ['marginLeftCm', 'marginLeft'],
+      ]
+      for (const [input, field] of margins) {
+        if (!(input in call.input)) continue
+        const value = Number(call.input[input])
+        if (!Number.isFinite(value) || value < 0 || value > 10)
+          return fail(call.name, `${input} must be between 0 and 10 cm`)
+        ;(next[field] as number) = Math.round(value * TWIPS.cm)
+      }
+      if ('columns' in call.input) {
+        const columns = Number(call.input.columns)
+        if (!Number.isInteger(columns) || columns < 1 || columns > 6)
+          return fail(call.name, 'columns must be a whole number between 1 and 6')
+        next.columns = columns
+      }
+      extras.setPageSetup(next)
+      return {
+        output: `Page setup: ${describe(next)}.`,
+        mutated: true,
+        summary: t('aiSumPageSetup'),
+      }
+    }
+
+    case 'set_header_footer': {
+      if (!extras) return fail(call.name, 'Headers and footers are not available in this window')
+      const kind = String(call.input.kind ?? '')
+      if (kind !== 'header' && kind !== 'footer')
+        return fail(call.name, "kind must be 'header' or 'footer'")
+      const current = extras.headerFooter(kind)
+      if (!('text' in call.input) && !('pageNumber' in call.input)) {
+        return {
+          output: current?.text
+            ? `Current ${kind}: "${current.text}"${current.pageNumber ? ' + page number' : ''}.`
+            : `The document has no ${kind}.`,
+          mutated: false,
+          summary: t('aiSumHeaderFooter'),
+        }
+      }
+      const pageNumber =
+        'pageNumber' in call.input ? Boolean(call.input.pageNumber) : (current?.pageNumber ?? false)
+      if (pageNumber && kind === 'header')
+        return fail(call.name, 'An automatic page number belongs in the footer, not the header')
+      const text = 'text' in call.input ? String(call.input.text ?? '') : (current?.text ?? '')
+      extras.setHeaderFooter(kind, { text, ...(pageNumber ? { pageNumber: true } : {}) })
+      return {
+        output:
+          text || pageNumber
+            ? `Set the ${kind} to "${text}"${pageNumber ? ' with an automatic page number' : ''}.`
+            : `Cleared the ${kind}.`,
+        mutated: true,
+        summary: t('aiSumHeaderFooter'),
+      }
+    }
+
+    case 'insert_page_break': {
+      // a page break is a property of the paragraph that starts the new page,
+      // not a block of its own — so it is set on the block after the break and
+      // moves with that block, which is the whole reason not to fake it with
+      // empty paragraphs
+      const after = Number(call.input.afterBlockIndex)
+      const total = editor.state.doc.childCount
+      if (!Number.isInteger(after) || after < -1 || after >= total)
+        return fail(call.name, `afterBlockIndex out of range (-1 to ${total - 1})`)
+      const target = after + 1
+      if (target >= total)
+        return fail(call.name, 'There is no block after that one to start a new page with')
+      const { from } = blockRangePositions(editor, target, target)
+      const node = editor.state.doc.nodeAt(from)
+      if (!node) return fail(call.name, 'The block after the break could not be found')
+      if (node.attrs.pageBreakBefore)
+        return {
+          output: `Block ${target} already starts a new page.`,
+          mutated: false,
+          summary: t('aiSumPageBreak'),
+        }
+      const tr = editor.state.tr.setNodeMarkup(from, undefined, {
+        ...node.attrs,
+        pageBreakBefore: true,
+      })
+      editor.view.dispatch(tr)
+      return {
+        output: `Block ${target} now starts a new page.`,
+        mutated: true,
+        summary: t('aiSumPageBreak'),
+      }
     }
 
     case 'set_watermark': {

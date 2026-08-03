@@ -1259,8 +1259,8 @@ export function App() {
 
   const submitNote = useCallback((text: string) => submitNoteImpl(reviewCtxRef.current, text), [])
 
-  const extrasStateRef = useRef({ watermark, sources })
-  extrasStateRef.current = { watermark, sources }
+  const extrasStateRef = useRef({ watermark, sources, header, footer, section })
+  extrasStateRef.current = { watermark, sources, header, footer, section }
 
   /**
    * The agent's handle on the document parts that are not in the editor tree.
@@ -1302,6 +1302,16 @@ export function App() {
       setSources: (list: SourceInfo[]) => {
         setSources(list)
         setSourcesDirty(true)
+      },
+      // the agent goes through the same commit paths the ribbon uses, so a
+      // change it makes is dirty-tracked and saved like a manual one
+      headerFooter: (kind: 'header' | 'footer') =>
+        kind === 'header' ? extrasStateRef.current.header : extrasStateRef.current.footer,
+      setHeaderFooter: (kind: 'header' | 'footer', value: HeaderFooter) => commitHf(kind, value),
+      pageSetup: () => extrasStateRef.current.section,
+      setPageSetup: (next: SectionSettings) => {
+        setSection(next)
+        setSectionDirty(true)
       },
     }),
     [],

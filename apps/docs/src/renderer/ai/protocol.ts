@@ -86,6 +86,7 @@ const HTML_RULES = [
   '- Use <pre> for code samples (monospace font + shading, line breaks preserved); use <blockquote> for quotations (indent + left bar)',
   '- Use <formula>LaTeX</formula> for math (produces native Word equations): as a top-level block it becomes its own centered paragraph; placed inside <p>/<li>/<h*> text it is an inline formula flowing with the text, e.g. <p>From <formula>E = mc^2</formula> we know…</p>; supports the common subset of \\frac \\sqrt super/subscripts \\sum \\int \\lim matrix environments Greek letters etc., the align environment is not supported; invalid LaTeX fails the whole call — fix and retry',
   '- Do not include <html>/<body>, markdown code fences, or explanatory text',
+  '- Page-level requests are not content edits: paper size, orientation, margins and columns go through set_page_setup; a repeated line at the top or bottom of every page, and page numbers, go through set_header_footer; starting a section on a fresh page goes through insert_page_break, never through empty paragraphs',
   '- Organize long content into sections with h2/h3 (unless the user only wants a single paragraph)',
   '- Keep the same language as the original document / user instruction, unless translation is requested',
 ].join('\n')
