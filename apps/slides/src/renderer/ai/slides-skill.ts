@@ -7,6 +7,7 @@ import type {
   ShapeRenderNode,
 } from '@genoffice/pptx-render'
 import type { AddSmartArtOp, AgentToolCall, AgentToolDef, EditParagraph } from '../../shared/ipc'
+import { generateDeckLocally, type LocalDeckDeps } from './deck-local'
 import { auditSlideLayout, formatAudit } from './layout-audit'
 import { runLayoutScript, type LayoutScriptElement, type SlideStylePatch } from './layout-script'
 import { t } from '../i18n/locale'
@@ -129,6 +130,19 @@ export interface DeckAccess {
     canvasH: number
     signal?: AbortSignal
   }): Promise<{ ok: boolean; marker?: string; error?: string }>
+  /**
+   * Local per-page content (used when cloud page generation is unavailable):
+   * given the page's brief and the layout that will render it, the LLM returns
+   * the text for that layout's slots as JSON. Content only — the geometry comes
+   * from deck-layout.ts, which is why this returns slots rather than HTML.
+   */
+  planPageContent?: LocalDeckDeps['planPageContent']
+  /**
+   * Local page rendering: positioned elements → a real page on the canvas.
+   * `first` + `replaceExisting` say whether the pages that were already there
+   * should be dropped once this one lands.
+   */
+  renderLocalPage?: LocalDeckDeps['renderLocalPage']
   /**
    * In-tool Style Skill generation:
    * a dedicated LLM call focused on producing a complete structured visual style guide
@@ -2248,15 +2262,19 @@ async function executeTool(
       // ── Self-driven pipeline:
       //   1) Plan: use pages if passed; with topic, the tool plans the outline via LLM (batched recursion over threshold) — fixes missing pages at the input side.
       //   2) Generate: batched concurrent cloud page generation (gsk slide_generate, one retry per page), **each batch lands immediately → frontend shows pages one by one**.
-      if (!access.generatePageCloud || !(await access.isCloudPageGenEnabled?.().catch(() => false)))
+      //   Two ways to draw the pages: the cloud service writes HTML and the
+      //   HTML→pptx pipeline converts it, or — without a Genspark account —
+      //   the local renderer builds each page out of native elements. Stages
+      //   0/1/1.5 (style, outline, images) are the same either way.
+      const cloudReady =
+        !!access.generatePageCloud &&
+        !!access.generateFromHtml &&
+        (await access.isCloudPageGenEnabled?.().catch(() => false))
+      const localReady = !!access.planPageContent && !!access.renderLocalPage
+      if (!cloudReady && !localReady)
         return fail(
           t('aiFailGenDeck'),
-          'Cloud slide generation is unavailable — sign in to Genspark (gsk) first',
-        )
-      if (!access.generateFromHtml)
-        return fail(
-          t('aiFailGenDeck'),
-          'The current environment does not support the HTML→pptx pipeline',
+          'No slide generation path is available: cloud generation needs a Genspark (gsk) sign-in, and this environment has no local renderer.',
         )
 
       // Hard gate: with unread text attachments present, refuse to generate.
@@ -2559,22 +2577,15 @@ async function executeTool(
       const deckName = String(pages[0]?.title ?? '').trim() || topic || coreHook
 
       // ── Step 2: generate page by page + land as we go (frontend shows pages one by one).
-      // The cloud service (gsk slide_generate) writes each page's HTML and converts it to a
-      // one-slide pptx; genOne returns a marker and landing reads the bytes.
-      // Land strictly in page order: nextToLand pointer; a page lands only when its marker is ready, keeping page order intact.
-      const htmlByIndex: (string | null)[] = new Array(total).fill(null)
       // Per-page completion flags (aligned with pages; same reference as state.pageDone, used by buildContext progress injection)
       const doneFlags: boolean[] = state?.pageDone ?? new Array(total).fill(false)
-      const genFailed: number[] = [] // Page indexes (0-based) whose HTML generation failed
-      const landFailed: number[] = [] // Page indexes (0-based) whose HTML generated but conversion/landing failed
       const degraded: number[] = [] // Page indexes (0-based) that "landed" via the plain-text fallback — must be reported, otherwise dead pages appear silently
       const deckImageFails: { page: number; url: string }[] = [] // Image download/conversion failures (page numbers are deck-global 1-based)
       const pageErrors: (string | undefined)[] = new Array(total).fill(undefined) // Last failure reason per page
       const auditWarns: string[] = [] // Content audit findings: placeholder text / near-empty pages
+      const titleOnly: number[] = [] // Local path: page indexes (0-based) that landed with only their title
       let landedPages = 0
-      let firstDone = false
       let baseOffset = 0 // Number of existing pages before generated page 0 in the deck (>0 in append mode); used to re-insert retries at their original position
-      let nextToLand = 0 // Index of the next page to land (0-based)
 
       // Initialize per-page progress state (all pages pending)
       const pageProgressItems: PageProgressItem[] = pages.map((p) => ({
@@ -2592,6 +2603,63 @@ async function executeTool(
         summary: t('aiStagePageRunning', { n: 1, total }),
         pages: [...pageProgressItems],
       })
+
+      // ── Local path: no cloud service, so each page's content is planned here
+      //   and drawn by the local renderer out of native elements.
+      if (!cloudReady) {
+        const local = await generateDeckLocally({
+          planPageContent: access.planPageContent!,
+          renderLocalPage: access.renderLocalPage!,
+          pages,
+          coreHook,
+          styleSkill,
+          ...(topic ? { topic } : {}),
+          ...(pageContext ? { context: pageContext } : {}),
+          deckName,
+          insertMode,
+          ...(signal ? { signal } : {}),
+          onPage: (index, status, error) => {
+            pageProgressItems[index] = {
+              ...pageProgressItems[index]!,
+              status,
+              ...(error ? { error } : {}),
+            }
+            if (status === 'done') landedPages += 1
+            access.onProgress?.({
+              stage: 'pages',
+              label: t('aiStagePages'),
+              done: landedPages,
+              total,
+              status: 'running',
+              summary:
+                status === 'running'
+                  ? t('aiStagePageRunning', { n: index + 1, total })
+                  : landedPages < total
+                    ? t('aiStagePageRunning', { n: Math.min(index + 2, total), total })
+                    : t('aiStageFinishing'),
+              pages: [...pageProgressItems],
+            })
+          },
+        })
+        landedPages = local.landed
+        for (let i = 0; i < total; i++) {
+          doneFlags[i] = local.doneFlags[i] ?? false
+          pageErrors[i] = local.errors[i]
+          // a page that landed carrying only its title is a degraded page, and
+          // is reported as one rather than counted as a clean success
+          if (doneFlags[i] && local.errors[i]) titleOnly.push(i)
+        }
+      }
+
+      // ── Cloud path state. The cloud service (gsk slide_generate) writes each
+      // page's HTML and converts it to a one-slide pptx; genOne returns a marker
+      // and landing reads the bytes. Land strictly in page order: the nextToLand
+      // pointer only advances once that page's marker is ready.
+      const htmlByIndex: (string | null)[] = new Array(total).fill(null)
+      const genFailed: number[] = [] // Page indexes (0-based) whose HTML generation failed
+      const landFailed: number[] = [] // Page indexes (0-based) whose HTML generated but conversion/landing failed
+      let firstDone = false
+      let nextToLand = 0 // Index of the next page to land (0-based)
 
       const genOne = async (p: Record<string, unknown>, pageIndex: number) => {
         // Mark as running
@@ -2689,7 +2757,7 @@ async function executeTool(
         }
       }
 
-      for (let start = 0; start < total; start += GEN_BATCH) {
+      for (let start = 0; cloudReady && start < total; start += GEN_BATCH) {
         if (cancelled()) break
         const batchIdxs = []
         for (let k = start; k < Math.min(start + GEN_BATCH, total); k++) batchIdxs.push(k)
@@ -2715,13 +2783,13 @@ async function executeTool(
         // Batch generated → immediately land everything that can land (frontend shows pages one by one)
         await flushLanded()
       }
-      if (!cancelled()) await flushLanded() // Finalize
+      if (cloudReady && !cancelled()) await flushLanded() // Finalize
 
       // ── One re-land round for landing-failed pages (their one-slide pptx already exists, so
       //   landing again is cheap), re-inserted at their original page position with insert_at
       //   (target position = existing-page offset + pages completed before this one).
       //   Generation-failed pages already spent their single retry and stay skipped.
-      if (!cancelled()) {
+      if (cloudReady && !cancelled()) {
         const retryIdxs = [...new Set(landFailed)].sort((a, b) => a - b)
         for (const idx of retryIdxs) {
           if (cancelled()) break
@@ -2822,7 +2890,9 @@ async function executeTool(
       const stillFailed: number[] = []
       for (let i = 0; i < total; i++) if (!doneFlags[i]) stillFailed.push(i + 1)
       const briefErr = (s?: string) => (s ? (s.length > 80 ? `${s.slice(0, 80)}…` : s) : '')
-      const okMsg = `Self-driven generation produced ${landedPages}/${total} pages (HTML written page by page, displayed as generated; failed pages were auto-retried).`
+      const okMsg = cloudReady
+        ? `Self-driven generation produced ${landedPages}/${total} pages (HTML written page by page, displayed as generated; failed pages were auto-retried).`
+        : `Self-driven generation produced ${landedPages}/${total} pages locally (no cloud service: each page's content was planned and drawn as native elements). The pages are fully editable — the visual polish is plainer than cloud generation.`
       const failDetail = stillFailed
         .map((n) => `page ${n}${pageErrors[n - 1] ? ` (${briefErr(pageErrors[n - 1])})` : ''}`)
         .join(', ')
@@ -2841,13 +2911,32 @@ async function executeTool(
               ', ',
             )} degraded to a plain-text fallback page after conversion failure (all layout and styling lost): immediately redo these pages in place with regenerate_slide following the original brief, then reply to the user.`
         : ''
+      // Local path: pages whose content call failed twice landed with a title and
+      // nothing else. They are in the deck and in the right order, but they are not
+      // finished — say so rather than letting them pass as generated pages.
+      const titleOnlyMsg = titleOnly.length
+        ? ` ⚠️ ${titleOnly
+            .map(
+              (i) =>
+                `page ${i + 1} (slideIndex=${baseOffset + doneFlags.slice(0, i).filter(Boolean).length})`,
+            )
+            .join(
+              ', ',
+            )} landed with only a title — the content step failed. Fill each one in with the add_text_box / add_shape tools before telling the user the deck is done.`
+        : ''
       // Content audit: placeholder text / near-empty pages must not be delivered as finished work
       const auditMsg = auditWarns.length
         ? ` ⚠️ Content audit: ${auditWarns.join('; ')}. Do not tell the user the deck is done — redo each flagged page in place with regenerate_slide using real content (from the attachments/context), then reply.`
         : ''
       return {
         output:
-          okMsg + failMsg + degradedMsg + auditMsg + imageFailNote(deckImageFails) + progressTail,
+          okMsg +
+          failMsg +
+          degradedMsg +
+          titleOnlyMsg +
+          auditMsg +
+          imageFailNote(deckImageFails) +
+          progressTail,
         mutated: true,
         summary: t('aiSumDeckGenerated', { done: landedPages, total }),
       }

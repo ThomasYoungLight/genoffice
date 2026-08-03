@@ -675,3 +675,77 @@ describe('generate_deck content audit', () => {
     expect(res.output).not.toContain('Content audit')
   })
 })
+
+/**
+ * Without a Genspark sign-in the cloud page writer is unavailable. The deck must
+ * still get built — locally, out of native elements — rather than the tool
+ * refusing, which is what it used to do.
+ */
+describe('generate_deck without cloud generation', () => {
+  function localAccess() {
+    const drawn: Array<{ first: boolean; replaceExisting: boolean; elements: number }> = []
+    const asked: string[] = []
+    const base = makeAccess().access
+    const access: DeckAccess = {
+      ...base,
+      isCloudPageGenEnabled: async () => false,
+      planPageContent: async (a) => {
+        asked.push(a.layout)
+        return { ok: true, content: { title: a.title, bullets: ['point one', 'point two'] } }
+      },
+      renderLocalPage: async ({ page, first, replaceExisting }) => {
+        drawn.push({ first, replaceExisting, elements: page.elements.length })
+        return { ok: true }
+      },
+    }
+    return { access, drawn, asked }
+  }
+
+  it('builds every page locally and says so, without touching the cloud', async () => {
+    const { access, drawn, asked } = localAccess()
+    const cloudCalls: number[] = []
+    access.generatePageCloud = async (a) => {
+      cloudCalls.push(a.pageIndex)
+      return { ok: true, marker: 'should not be used' }
+    }
+    const skill = createSlidesSkill(access)
+
+    const res = (await skill.executeTool(deckCall(3))) as { output: string; summary: string }
+
+    expect(cloudCalls).toEqual([])
+    expect(drawn).toHaveLength(3)
+    expect(drawn.every((d) => d.elements > 0)).toBe(true)
+    expect(drawn.map((d) => d.first)).toEqual([true, false, false])
+    expect(asked).toHaveLength(3)
+    expect(res.output).toContain('3/3 pages locally')
+    expect(res.summary).toContain('3/3')
+    // the deck outline/progress bookkeeping is the same on either path
+    expect(skill.buildContext?.() ?? '').toContain('all generated')
+  })
+
+  it('reports a page that landed with only its title instead of counting it as done', async () => {
+    const { access } = localAccess()
+    let call = 0
+    access.planPageContent = async (a) => {
+      call += 1
+      // page 2 fails both of its attempts
+      return a.pageIndex === 2
+        ? { ok: false, error: `content call ${call} failed` }
+        : { ok: true, content: { title: a.title, bullets: ['x'] } }
+    }
+    const skill = createSlidesSkill(access)
+
+    const res = (await skill.executeTool(deckCall(3))) as { output: string }
+    expect(res.output).toContain('page 2')
+    expect(res.output).toContain('landed with only a title')
+  })
+
+  it('refuses only when neither the cloud nor the local renderer is available', async () => {
+    const { access } = makeAccess()
+    access.isCloudPageGenEnabled = async () => false
+    const skill = createSlidesSkill(access)
+    const res = (await skill.executeTool(deckCall(2))) as { output: string; isError?: true }
+    expect(res.isError).toBe(true)
+    expect(res.output).toContain('No slide generation path is available')
+  })
+})

@@ -751,6 +751,121 @@ export function AiPanel({
           return { ok: false, error: e instanceof Error ? e.message : String(e) }
         }
       },
+      // ── Local generation (no cloud service): content per page, then the local
+      // renderer draws it. The model fills the slots the chosen layout has; it is
+      // never asked for coordinates (see deck-layout.ts).
+      planPageContent: async (a) => {
+        const slots: Record<string, string> = {
+          cover:
+            '"title" (the deck title, ≤12 words) and "subtitle" (one line: occasion, date or audience).',
+          closing:
+            '"title" (the closing line or call to action), "subtitle" (one supporting line) and, when the ending is a set of actions, "bullets": up to 4 steps of ≤12 words.',
+          bullets: '"bullets": 3-5 short lines, each a complete point, ≤14 words.',
+          image_right:
+            '"bullets": 3-4 short lines, ≤12 words each (they sit beside an image, so keep them tight).',
+          cards:
+            '"cards": exactly 3 items, each {"heading": 1-3 words, "body": one sentence ≤20 words}.',
+          comparison:
+            '"cards": exactly 2 items to contrast, each {"heading": the side\'s name, "body": 2-3 sentences}.',
+          kpis: '"kpis": 3-4 items, each {"value": the figure itself e.g. "18%" or "$4.2M", "label": what it measures, ≤5 words}.',
+          big_number:
+            '"figure": {"value": the single number this page exists for, "caption": what it means, ≤12 words}.',
+        }
+        const sys =
+          'You write the copy for one slide. Output only one JSON object — no explanation, no markdown, no code fences.\n' +
+          'Always include "title": the slide\'s headline, ≤10 words, specific rather than generic.\n' +
+          `This slide's layout needs: ${slots[a.layout] ?? slots.bullets}\n` +
+          'Include "source" only when the page states figures that came from the reference material (format: "Source: …").\n' +
+          'Write ONLY the words that appear on the slide. The brief describes how the page should look — colours, grids, axes, "left column", ' +
+          'hex codes, layout names. None of that is copy: translate it into the words it is asking for and never repeat the design language itself.\n' +
+          'Fill only the fields listed above. Leave out any field you have nothing real for — an omitted field renders as a cleaner page than a padded one.\n' +
+          'Respect the length limits: the slide is a fixed size and text that overruns it is shrunk or cut.\n' +
+          'Rules: use the real names, figures and facts from the brief and reference material; never write placeholders like "XX%" or "Company A". ' +
+          'Slide copy, not prose: no filler, no repeated title, no trailing punctuation on fragments. ' +
+          'Write in the same language as the brief.'
+        const parts = [
+          `Deck topic: ${a.topic ?? a.coreHook}`,
+          `Narrative anchor: ${a.coreHook}`,
+          `Slide ${a.pageIndex} of ${a.totalPages} — planned title: ${a.title}`,
+          `What this slide must say: ${a.brief}`,
+        ]
+        if (a.hasImage) parts.push('An image is already placed on this slide; do not describe it.')
+        if (a.context)
+          parts.push(
+            `Reference material (all real names/figures/facts come from here; do not invent):\n${a.context.slice(0, 4000)}`,
+          )
+        const userMsg = `${parts.join('\n')}\nOutput the JSON.`
+        let lastErr = tGlobal('aiErrEmptyOutput')
+        for (let attempt = 0; attempt < 2; attempt++) {
+          if (a.signal?.aborted) return { ok: false, error: tGlobal('aiErrStopped') }
+          const r = await runLlmOnce(sys, userMsg, 60000, true, a.signal)
+          if (!r.ok || !r.text) {
+            lastErr = r.error ?? tGlobal('aiErrEmptyOutput')
+            if (r.errKind === 'timeout' || r.errKind === 'empty' || r.errKind === 'stopped') break
+            continue
+          }
+          try {
+            const obj = JSON.parse(extractJsonObject(r.text)) as Record<string, unknown>
+            if (obj && typeof obj === 'object') return { ok: true, content: obj }
+            lastErr = 'page content is not a JSON object'
+          } catch (e) {
+            lastErr = `page content JSON parse failed: ${e instanceof Error ? e.message : String(e)}`
+          }
+        }
+        return { ok: false, error: lastErr }
+      },
+      renderLocalPage: async ({ page, first, replaceExisting }) => {
+        try {
+          const existing = slidesRef.current.length
+          const added = await window.slidesApi.addBlankSlide({
+            sourceIndex: existing - 1,
+            fitWidthPx,
+          })
+          if (!added) return { ok: false, error: 'could not add a page to the deck' }
+          applyDeckRef.current(added.slides, added.index)
+          const idx = added.index
+          const bg = await window.slidesApi.editBackground({
+            slideIndex: idx,
+            color: page.background,
+            fitWidthPx,
+          })
+          if (bg) applyDeckRef.current(bg, idx)
+          // In document order, so later elements paint over earlier ones —
+          // the layout emits panels before the text that sits on them.
+          for (const el of page.elements) {
+            const box = { xPx: el.x, yPx: el.y, wPx: el.w, hPx: el.h }
+            if (el.kind === 'image') {
+              // fail-open: a page with a missing image beats no page
+              const r = await window.slidesApi.insertImageUrl({
+                slideIndex: idx,
+                url: el.url,
+                ...box,
+                fitWidthPx,
+              })
+              if (r) applySlideRef.current(idx, r.slide)
+              continue
+            }
+            const r = await window.slidesApi.addElement({
+              slideIndex: idx,
+              kind: el.kind === 'rect' ? 'rect' : 'textbox',
+              ...box,
+              fitWidthPx,
+              ...(el.kind === 'text' ? { paragraphs: el.paragraphs } : { fillColor: el.fill }),
+            })
+            if (r) applySlideRef.current(idx, r.slide)
+          }
+          // Replace mode: the pages that were open before this run go away only
+          // once the first generated page is safely on the canvas.
+          if (first && replaceExisting && existing > 0) {
+            let remaining: RenderSlide[] | null = null
+            for (let i = 0; i < existing; i++) remaining = await window.slidesApi.deleteSlide(0)
+            if (remaining) applyDeckRef.current(remaining, remaining.length - 1)
+          }
+          return { ok: true }
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) }
+        }
+      },
       // ── In-tool planning: given topic+page count, the LLM produces a structured outline (batched recursion scheduled by the skill).
       // Fixes "missing pages at the input side" at the root: the main agent doesn't hand-write dozens of pages of pages JSON.
       // In-tool independent Style Skill generation: one focused LLM call thinking only about the design system.

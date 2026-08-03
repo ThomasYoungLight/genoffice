@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CANVAS,
   DARK_THEME,
+  estimateTextHeight,
   LIGHT_THEME,
   layoutPage,
   normalizeLayout,
@@ -89,6 +90,94 @@ describe('layoutPage geometry', () => {
       .flatMap((p) => p.runs.map((r) => r.text))
       .join(' ')
     expect(text).toContain(CONTENT.title)
+  })
+})
+
+/**
+ * A slide text box does not clip: overrunning text draws over what is below it
+ * and off the bottom of the page. The first generated deck ended with a page
+ * whose five-step procedure arrived in a one-line slot and spilled off the
+ * canvas, so overlong content is checked for every layout, not just short.
+ */
+describe('layoutPage with more content than the slot expects', () => {
+  const FLOOD: PageContent = {
+    title:
+      'Run the two-week writing-first experiment across every engineering team before the next planning cycle begins',
+    subtitle:
+      '1. Name one owner and one shared place for proposals and decisions 2. Replace recurring status and routine decision meetings with written updates 3. Use one template: context, decision needed, options, recommendation, owner, deadline 4. Allow at least one full working day for async review 5. Review calendar fragmentation, reopened questions and decision clarity',
+    bullets: [
+      'Fragmentation — deep work is split into unusable intervals, and the recovery cost after each interruption is far larger than the meeting itself',
+      'Forced simultaneity — presence is treated as participation, which quietly excludes anyone outside the organiser’s time zone',
+      'Decisions evaporate — what was agreed lives in someone’s memory rather than in a document anyone can find later',
+    ],
+    cards: [
+      {
+        heading: 'A considerably longer heading than the slot was designed for',
+        body: 'Two-by-two grid on #EEE8DC: horizontal axis lower to higher ambiguity, vertical axis lower to higher urgency, with each quadrant carrying a worked example and a recommended medium for that combination of the two axes.',
+      },
+      {
+        heading: 'Second column',
+        body: 'Another long body that keeps going well past the point where a card of this size could reasonably hold it, continuing for several more clauses to be sure.',
+      },
+      {
+        heading: 'Third column',
+        body: 'A third body of similar length, so the cards layout is compared at the same column width as the short-content case rather than a wider two-column one.',
+      },
+    ],
+    kpis: [{ value: '18%', label: 'A label considerably longer than five words was requested' }],
+    figure: {
+      value: '42%',
+      caption:
+        'A caption that runs on well past twelve words, describing the figure in far more detail than the space allows',
+    },
+    source:
+      'Source: a provenance line that is itself rather long, naming several documents at once',
+  }
+
+  it.each(ALL)('keeps flooded content inside the canvas: %s', (layout) => {
+    for (const theme of [LIGHT_THEME, DARK_THEME]) {
+      for (const el of layoutPage(layout, FLOOD, theme).elements) {
+        expect(el.x).toBeGreaterThanOrEqual(0)
+        expect(el.y).toBeGreaterThanOrEqual(0)
+        expect(el.x + el.w).toBeLessThanOrEqual(CANVAS.w)
+        expect(el.y + el.h).toBeLessThanOrEqual(CANVAS.h)
+      }
+    }
+  })
+
+  it.each(ALL)('keeps flooded text inside its own box: %s', (layout) => {
+    for (const el of layoutPage(layout, FLOOD, LIGHT_THEME).elements) {
+      if (el.kind !== 'text') continue
+      const lines = el.paragraphs.map((p) => p.runs.map((r) => r.text).join(''))
+      const size = el.paragraphs[0]?.runs[0]?.fontSize ?? 12
+      const spacing = el.paragraphs[0]?.lineSpacingPct ? el.paragraphs[0].lineSpacingPct / 100 : 1
+      // the same estimate the layout fits against, so this asserts the fit ran
+      expect(estimateTextHeight(lines, size, el.w) * spacing).toBeLessThanOrEqual(el.h + 1)
+    }
+  })
+
+  it.each(ALL)('still shows no overlap when content overflows: %s', (layout) => {
+    const content = boxes(layoutPage(layout, FLOOD, LIGHT_THEME).elements)
+    for (let i = 0; i < content.length; i++) {
+      for (let j = i + 1; j < content.length; j++) {
+        expect(overlaps(content[i]!, content[j]!), `${layout}: ${i} overlaps ${j}`).toBe(false)
+      }
+    }
+  })
+
+  it('shrinks the text rather than dropping it, until it cannot', () => {
+    // the card body: same slot, short content vs flooded
+    const sizeOfCardBody = (content: PageContent, needle: string) => {
+      const el = layoutPage('cards', content, LIGHT_THEME).elements.find(
+        (e) => e.kind === 'text' && e.paragraphs.some((p) => p.runs[0]?.text.includes(needle)),
+      )
+      return el?.kind === 'text' ? (el.paragraphs[0]?.runs[0]?.fontSize ?? 0) : 0
+    }
+    const short = sizeOfCardBody(CONTENT, 'New logos up 24%')
+    const flooded = sizeOfCardBody(FLOOD, 'Two-by-two grid')
+    expect(short).toBeGreaterThan(0)
+    expect(flooded).toBeGreaterThan(0)
+    expect(flooded).toBeLessThan(short)
   })
 })
 

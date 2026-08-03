@@ -160,6 +160,7 @@ import type {
   DeleteElementOp,
   EditBackgroundOp,
   EditFillOp,
+  EditParagraph,
   EditStrokeOp,
   FlipElementOp,
   EditPictureSrcRectOp,
@@ -742,6 +743,40 @@ function deckDefaultFont(opened: OpenedPptx): string | undefined {
     return xml ? parseTheme(xml).minorFont : undefined
   } catch {
     return undefined
+  }
+}
+
+/** 0.25" — the hanging indent a bulleted paragraph needs so wrapped lines clear the bullet. */
+const BULLET_INDENT_EMU = 228600
+
+/**
+ * IPC paragraph → engine paragraph.
+ *
+ * The two shapes agree on runs and alignment but not on paragraph format: the
+ * IPC form says `bullet: 'char'` and `lineSpacingPct`, the engine wants a
+ * bullet object and `lineHeight`. Editing paths go through
+ * setElementParagraphFormat, which translates; newly added elements come
+ * through here, so they translate here.
+ */
+function toModelParagraph(p: EditParagraph): Paragraph {
+  const bullet: Paragraph['bullet'] | undefined =
+    p.bullet === 'none'
+      ? { type: 'none' }
+      : p.bullet === 'number'
+        ? { type: 'number' }
+        : p.bullet === 'char'
+          ? { type: 'char', char: p.bulletChar ?? '•' }
+          : undefined
+  const hanging = bullet && bullet.type !== 'none'
+  return {
+    runs: p.runs as Paragraph['runs'],
+    ...(p.align ? { align: p.align } : {}),
+    ...(p.level ? { level: p.level } : {}),
+    ...(bullet ? { bullet } : {}),
+    ...(hanging ? { marL: BULLET_INDENT_EMU, indent: -BULLET_INDENT_EMU } : {}),
+    ...(p.lineSpacingPct != null ? { lineHeight: p.lineSpacingPct } : {}),
+    ...(p.spaceBeforePt != null ? { spaceBefore: p.spaceBeforePt } : {}),
+    ...(p.spaceAfterPt != null ? { spaceAfter: p.spaceAfterPt } : {}),
   }
 }
 
@@ -1544,7 +1579,7 @@ export function registerSlidesIpc(): void {
     const scale = op.fitWidthPx / baseWidthPx
     const toEmu = (px: number) => Math.round((px / scale) * EMU_PER_PX_96)
     const paragraphs: Paragraph[] | undefined = op.paragraphs?.length
-      ? (op.paragraphs as Paragraph[])
+      ? op.paragraphs.map(toModelParagraph)
       : op.text
         ? op.text.split('\n').map((line) => ({ runs: [{ text: line }] }))
         : undefined

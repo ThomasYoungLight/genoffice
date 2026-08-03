@@ -89,14 +89,19 @@ export type LayoutId =
  */
 export function normalizeLayout(planned: string | undefined, type?: string): LayoutId {
   const l = (planned ?? '').toLowerCase()
-  const t = (type ?? '').toLowerCase()
-  if (l.startsWith('cover') || t === 'cover') return 'cover'
-  if (l.startsWith('closing') || t === 'closing') return 'closing'
+  // The layout name is the specific instruction and the page type is the
+  // category, so the name is read first: a page typed "cover" that asks for
+  // left_text_right_image wants the image.
+  if (l.startsWith('cover')) return 'cover'
+  if (l.startsWith('closing')) return 'closing'
   if (l.includes('kpi')) return 'kpis'
   if (l.includes('big_number') || l.includes('hero_big')) return 'big_number'
   if (l.includes('comparison') || l.includes('two_by_two')) return 'comparison'
   if (l.includes('card') || l.includes('three_column') || l.includes('timeline')) return 'cards'
   if (l.includes('image')) return 'image_right'
+  const t = (type ?? '').toLowerCase()
+  if (t === 'cover') return 'cover'
+  if (t === 'closing') return 'closing'
   return 'bullets'
 }
 
@@ -174,10 +179,19 @@ function textBox(
 /**
  * Height a text box needs, from a crude character-per-line estimate. Exact
  * measurement would need the shaping engine; this only has to be close enough
- * that boxes do not overlap, and it errs generous.
+ * that boxes do not overlap, and it must err generous.
+ *
+ * The ratio is measured against what the renderer actually draws, not against
+ * Calibri's nominal metrics: a 46pt line of mixed-case text came out at ~0.68
+ * of the point size per character, and 0.55 (the typographic figure) made a
+ * two-line title report as one, which overlapped whatever sat under it. 0.72
+ * keeps the error on the safe side — a box slightly too tall costs nothing,
+ * a box too short collides.
  */
+const CHAR_W_RATIO = 0.72
+
 export function estimateTextHeight(lines: string[], sizePt: number, widthPx: number): number {
-  const charW = sizePt * 0.55
+  const charW = sizePt * CHAR_W_RATIO
   const perLine = Math.max(1, Math.floor(widthPx / charW))
   const rows = lines.reduce((n, line) => n + Math.max(1, Math.ceil(line.length / perLine)), 0)
   return Math.ceil(rows * sizePt * 1.35 * 1.34) // pt → px at 96dpi, with leading
@@ -188,26 +202,65 @@ function cap<T>(items: T[] | undefined, max: number): T[] {
   return (items ?? []).slice(0, max)
 }
 
+/**
+ * Make text fit its box.
+ *
+ * A slide text box does not clip: text longer than the box keeps drawing, over
+ * whatever is below it and off the bottom of the page. Nothing upstream can
+ * fully prevent it — the model is told how long each slot should be, but a
+ * five-step procedure will still arrive in a one-line slot sooner or later.
+ * So fitting is enforced here, where the box size is known.
+ *
+ * Two steps, in the order that costs the reader least: shrink through the
+ * given sizes, then drop lines, then clip the last one. The result always
+ * fits, so a page can be crowded but never broken.
+ */
+function fitText(
+  lines: string[],
+  widthPx: number,
+  heightPx: number,
+  sizes: number[],
+): { size: number; lines: string[] } {
+  const size = sizes.find((s) => estimateTextHeight(lines, s, widthPx) <= heightPx) ?? sizes.at(-1)!
+  let out = lines
+  while (out.length > 1 && estimateTextHeight(out, size, widthPx) > heightPx) out = out.slice(0, -1)
+  const first = out[0]
+  if (first && estimateTextHeight(out, size, widthPx) > heightPx) {
+    // one line, still too tall: keep the characters that fit and mark the cut
+    const charW = size * CHAR_W_RATIO
+    const perLine = Math.max(1, Math.floor(widthPx / charW))
+    const rows = Math.max(1, Math.floor(heightPx / (size * 1.35 * 1.34)))
+    out = [`${first.slice(0, Math.max(8, perLine * rows - 1)).trimEnd()}…`]
+  }
+  return { size, lines: out }
+}
+
 // ── layouts ─────────────────────────────────────────────
 
 function coverPage(c: PageContent, th: Theme): RenderedPage {
   const elements: ElementSpec[] = []
   // an accent band anchors the title block instead of it floating in space
   elements.push({ kind: 'rect', x: 0, y: 0, w: 14, h: CANVAS.h, fill: th.accent })
-  const titleH = estimateTextHeight([c.title], 54, CANVAS.w - M.x * 2 - 120)
-  const top = Math.max(M.top, (CANVAS.h - titleH - (c.subtitle ? 90 : 0)) / 2)
+  const titleW = CANVAS.w - M.x * 2 - 60
+  // a cover title gets the space it needs, down to a size that still reads big
+  const title = fitText([c.title], titleW, 300, [54, 46, 40, 34])
+  const titleH = estimateTextHeight(title.lines, title.size, titleW)
+  const subW = CANVAS.w - M.x * 2 - 200
+  const sub = c.subtitle ? fitText([c.subtitle], subW, 96, [22, 20, 18]) : null
+  const subH = sub ? estimateTextHeight(sub.lines, sub.size, subW) : 0
+  const top = Math.max(M.top, (CANVAS.h - titleH - (sub ? subH + 22 : 0)) / 2)
   elements.push(
-    textBox(M.x, top, CANVAS.w - M.x * 2 - 60, titleH, [c.title], {
-      size: 54,
+    textBox(M.x, top, titleW, titleH, title.lines, {
+      size: title.size,
       color: th.text,
       bold: true,
       font: th.headFont,
     }),
   )
-  if (c.subtitle) {
+  if (sub) {
     elements.push(
-      textBox(M.x, top + titleH + 22, CANVAS.w - M.x * 2 - 200, 64, [c.subtitle], {
-        size: 22,
+      textBox(M.x, top + titleH + 22, subW, subH, sub.lines, {
+        size: sub.size,
         color: th.muted,
         font: th.bodyFont,
       }),
@@ -222,9 +275,12 @@ function bulletsPage(c: PageContent, th: Theme): RenderedPage {
   const lines = cap(c.bullets, 6)
   if (lines.length) {
     const w = CANVAS.w - M.x * 2
+    const h = CANVAS.h - bodyTop - (c.source ? M.bottom + 20 : M.bottom)
+    // bullets carry 1.5 line spacing, so the fit budget is proportionally smaller
+    const fit = fitText(lines, w, h / 1.5, [20, 18, 16])
     elements.push(
-      textBox(M.x, bodyTop, w, CANVAS.h - bodyTop - M.bottom, lines, {
-        size: 20,
+      textBox(M.x, bodyTop, w, h, fit.lines, {
+        size: fit.size,
         color: th.text,
         font: th.bodyFont,
         bullet: true,
@@ -241,9 +297,11 @@ function imageRightPage(c: PageContent, th: Theme): RenderedPage {
   const colW = (CANVAS.w - M.x * 2 - M.gap * 2) / 2
   const lines = cap(c.bullets, 5)
   if (lines.length) {
+    const h = CANVAS.h - bodyTop - (c.source ? M.bottom + 20 : M.bottom)
+    const fit = fitText(lines, colW, h / 1.5, [19, 17, 15])
     elements.push(
-      textBox(M.x, bodyTop, colW, CANVAS.h - bodyTop - M.bottom, lines, {
-        size: 19,
+      textBox(M.x, bodyTop, colW, h, fit.lines, {
+        size: fit.size,
         color: th.text,
         font: th.bodyFont,
         bullet: true,
@@ -273,17 +331,19 @@ function cardsPage(c: PageContent, th: Theme): RenderedPage {
     const x = M.x + i * (w + M.gap)
     elements.push({ kind: 'rect', x, y: top, w, h, fill: th.surface })
     elements.push({ kind: 'rect', x, y: top, w: 6, h, fill: th.accent })
+    const head = fitText([card.heading], w - 56, 74, [22, 20, 18])
     elements.push(
-      textBox(x + 28, top + 26, w - 56, 74, [card.heading], {
-        size: 22,
+      textBox(x + 28, top + 26, w - 56, 74, head.lines, {
+        size: head.size,
         color: th.text,
         bold: true,
         font: th.headFont,
       }),
     )
+    const body = fitText([card.body], w - 56, (h - 130) / 1.4, [16, 15, 14, 13])
     elements.push(
-      textBox(x + 28, top + 104, w - 56, h - 130, [card.body], {
-        size: 16,
+      textBox(x + 28, top + 104, w - 56, h - 130, body.lines, {
+        size: body.size,
         color: th.muted,
         font: th.bodyFont,
         lineSpacingPct: 140,
@@ -297,9 +357,12 @@ function bigNumberPage(c: PageContent, th: Theme): RenderedPage {
   const elements = [titleBlock(c, th)].flat()
   const figure = c.figure ?? { value: '—', caption: c.subtitle ?? '' }
   const top = M.top + 150
+  // 128pt occupies ~232px of line box; the box is sized for it, and a figure
+  // too long to sit on one line steps down instead of running over the caption
+  const value = fitText([figure.value], CANVAS.w - M.x * 2, 240, [128, 108, 88, 70])
   elements.push(
-    textBox(M.x, top, CANVAS.w - M.x * 2, 190, [figure.value], {
-      size: 128,
+    textBox(M.x, top, CANVAS.w - M.x * 2, 240, value.lines, {
+      size: value.size,
       color: th.accent,
       bold: true,
       align: 'center',
@@ -307,9 +370,11 @@ function bigNumberPage(c: PageContent, th: Theme): RenderedPage {
     }),
   )
   if (figure.caption) {
+    const capW = CANVAS.w - M.x * 2 - 200
+    const fit = fitText([figure.caption], capW, 90, [22, 20, 18])
     elements.push(
-      textBox(M.x + 100, top + 210, CANVAS.w - M.x * 2 - 200, 90, [figure.caption], {
-        size: 22,
+      textBox(M.x + 100, top + 254, capW, 90, fit.lines, {
+        size: fit.size,
         color: th.muted,
         align: 'center',
         font: th.bodyFont,
@@ -328,18 +393,21 @@ function kpisPage(c: PageContent, th: Theme): RenderedPage {
   kpis.forEach((kpi, i) => {
     const x = M.x + i * (w + M.gap)
     elements.push({ kind: 'rect', x, y: top, w, h, fill: th.surface })
+    // 52pt needs ~100px of line box; a longer figure ("$4.2M/quarter") shrinks
+    const value = fitText([kpi.value], w - 40, 100, [52, 44, 36, 30])
     elements.push(
-      textBox(x + 20, top + 34, w - 40, 92, [kpi.value], {
-        size: 52,
+      textBox(x + 20, top + 30, w - 40, 100, value.lines, {
+        size: value.size,
         color: th.accent,
         bold: true,
         align: 'center',
         font: th.headFont,
       }),
     )
+    const label = fitText([kpi.label], w - 40, 60, [15, 14, 13])
     elements.push(
-      textBox(x + 20, top + 132, w - 40, 60, [kpi.label], {
-        size: 15,
+      textBox(x + 20, top + 138, w - 40, 60, label.lines, {
+        size: label.size,
         color: th.muted,
         align: 'center',
         font: th.bodyFont,
@@ -360,17 +428,19 @@ function comparisonPage(c: PageContent, th: Theme): RenderedPage {
     // the second column carries the accent, so the contrast is visible at a glance
     const accent = i === 1
     elements.push({ kind: 'rect', x, y: top, w, h, fill: accent ? th.accent : th.surface })
+    const head = fitText([col.heading], w - 60, 70, [24, 21, 18])
     elements.push(
-      textBox(x + 30, top + 28, w - 60, 70, [col.heading], {
-        size: 24,
+      textBox(x + 30, top + 28, w - 60, 70, head.lines, {
+        size: head.size,
         color: accent ? th.onAccent : th.text,
         bold: true,
         font: th.headFont,
       }),
     )
+    const body = fitText([col.body], w - 60, (h - 130) / 1.45, [17, 16, 14, 13])
     elements.push(
-      textBox(x + 30, top + 104, w - 60, h - 130, [col.body], {
-        size: 17,
+      textBox(x + 30, top + 104, w - 60, h - 130, body.lines, {
+        size: body.size,
         color: accent ? th.onAccent : th.muted,
         font: th.bodyFont,
         lineSpacingPct: 145,
@@ -380,26 +450,55 @@ function comparisonPage(c: PageContent, th: Theme): RenderedPage {
   return withSource(c, th, { background: th.bg, elements })
 }
 
+/**
+ * Closing page: title, an optional line under it, and — because a closing page
+ * is often "here is what to do on Monday" — an optional short list. Without
+ * the list a procedural ending has nowhere to go but the subtitle, which is
+ * how a five-step plan ends up crushed into one line.
+ */
 function closingPage(c: PageContent, th: Theme): RenderedPage {
   const elements: ElementSpec[] = []
-  const titleH = estimateTextHeight([c.title], 46, CANVAS.w - M.x * 2)
-  const top = (CANVAS.h - titleH - 80) / 2
+  const w = CANVAS.w - M.x * 2
+  const title = fitText([c.title], w, 200, [46, 40, 34])
+  const titleH = estimateTextHeight(title.lines, title.size, w)
+  const steps = cap(c.bullets, 4)
+  const sub = c.subtitle ? fitText([c.subtitle], w, 76, [20, 18]) : null
+  const subH = sub ? estimateTextHeight(sub.lines, sub.size, w) : 0
+  const listW = w - 220
+  const list = steps.length ? fitText(steps, listW, 200 / 1.5, [18, 16, 15]) : null
+  const listH = list ? estimateTextHeight(list.lines, list.size, listW) * 1.5 : 0
+
+  const blockH = titleH + (sub ? subH + 20 : 0) + (list ? listH + 28 : 0)
+  const top = Math.max(M.top, (CANVAS.h - blockH) / 2)
   elements.push(
-    textBox(M.x, top, CANVAS.w - M.x * 2, titleH, [c.title], {
-      size: 46,
+    textBox(M.x, top, w, titleH, title.lines, {
+      size: title.size,
       color: th.text,
       bold: true,
       align: 'center',
       font: th.headFont,
     }),
   )
-  if (c.subtitle) {
+  let y = top + titleH
+  if (sub) {
     elements.push(
-      textBox(M.x, top + titleH + 20, CANVAS.w - M.x * 2, 70, [c.subtitle], {
-        size: 20,
+      textBox(M.x, y + 20, w, subH, sub.lines, {
+        size: sub.size,
         color: th.muted,
         align: 'center',
         font: th.bodyFont,
+      }),
+    )
+    y += subH + 20
+  }
+  if (list) {
+    elements.push(
+      textBox(M.x + 110, y + 28, listW, listH, list.lines, {
+        size: list.size,
+        color: th.text,
+        font: th.bodyFont,
+        bullet: true,
+        lineSpacingPct: 150,
       }),
     )
   }
@@ -409,9 +508,12 @@ function closingPage(c: PageContent, th: Theme): RenderedPage {
 /** Shared heading: title, optional deck, and a rule under it. */
 function titleBlock(c: PageContent, th: Theme): ElementSpec[] {
   const w = CANVAS.w - M.x * 2
+  // fixed height: everything below is positioned against it, so a long title
+  // shrinks to fit rather than pushing the page down
+  const fit = fitText([c.title], w, 62, [32, 28, 24, 20])
   return [
-    textBox(M.x, M.top, w, 62, [c.title], {
-      size: 32,
+    textBox(M.x, M.top, w, 62, fit.lines, {
+      size: fit.size,
       color: th.text,
       bold: true,
       font: th.headFont,
@@ -423,9 +525,11 @@ function titleBlock(c: PageContent, th: Theme): ElementSpec[] {
 /** Provenance line, bottom-left, on any page whose content carries one. */
 function withSource(c: PageContent, th: Theme, page: RenderedPage): RenderedPage {
   if (!c.source) return page
+  const w = CANVAS.w - M.x * 2
+  const fit = fitText([c.source], w, 34, [12, 11, 10])
   page.elements.push(
-    textBox(M.x, CANVAS.h - M.bottom + 8, CANVAS.w - M.x * 2, 34, [c.source], {
-      size: 12,
+    textBox(M.x, CANVAS.h - M.bottom + 8, w, 34, fit.lines, {
+      size: fit.size,
       color: th.muted,
       font: th.bodyFont,
     }),
@@ -454,6 +558,9 @@ export function layoutPage(layout: LayoutId, content: PageContent, theme: Theme)
     (layout === 'comparison' && !content.cards?.length) ||
     (layout === 'kpis' && !content.kpis?.length) ||
     (layout === 'big_number' && !content.figure)
-  const chosen = empty ? 'bullets' : layout
-  return LAYOUTS[chosen](content, theme)
+  // Degrade to whatever the page does have rather than always to bullets: a
+  // KPI page whose figures were rejected often still has cards, and rendering
+  // those beats rendering a title over an empty page.
+  const fallback: LayoutId = content.cards?.length ? 'cards' : 'bullets'
+  return LAYOUTS[empty ? fallback : layout](content, theme)
 }
