@@ -142,7 +142,7 @@ const BASELINE = {
     'table-merge': 'covered by edit_table_structure',
     'table-structure': 'covered by edit_table_structure',
     'edit-chart': 'covered by edit_chart',
-    'insert-model3d': 'GAP: 3D models, which no tool can insert',
+    'insert-model3d': 'opens a native file dialog; the agent has no model file to insert',
     'set-text-anchor': 'covered by set_text_anchor',
     'cloud-page-generate': 'the cloud page call behind generate_deck',
     'html-to-pptx': 'the generation pipeline behind generate_deck',
