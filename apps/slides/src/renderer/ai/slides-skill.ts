@@ -6,7 +6,17 @@ import type {
   RenderSlide,
   ShapeRenderNode,
 } from '@genoffice/pptx-render'
-import type { AddSmartArtOp, AgentToolCall, AgentToolDef, EditParagraph } from '../../shared/ipc'
+import type {
+  AddSmartArtOp,
+  AgentToolCall,
+  AgentToolDef,
+  AnimationItem,
+  AnimEffectKind,
+  AnimTrigger,
+  EditParagraph,
+  LinkTargetOp,
+  TransitionKind,
+} from '../../shared/ipc'
 import { generateDeckLocally, type LocalDeckDeps } from './deck-local'
 import { auditSlideLayout, formatAudit } from './layout-audit'
 import { runLayoutScript, type LayoutScriptElement, type SlideStylePatch } from './layout-script'
@@ -18,6 +28,44 @@ import { t } from '../i18n/locale'
  * the main process applies them and returns the new RenderSlide, which applySlide writes
  * back into React state — the same pipeline as manual editing.
  */
+
+/** Accepted by set_slide_transition / set_slide_animations; mirrors the IPC unions. */
+const TRANSITION_KINDS = new Set<string>([
+  'none',
+  'morph',
+  'fade',
+  'push',
+  'wipe',
+  'split',
+  'circle',
+  'cover',
+  'pull',
+  'dissolve',
+  'zoom',
+  'random',
+])
+const ANIM_EFFECTS = new Set<string>([
+  'appear',
+  'fade',
+  'flyIn',
+  'wipe',
+  'wipeDown',
+  'splitIn',
+  'bounce',
+  'flipIn',
+  'zoom',
+  'pulse',
+  'spin',
+  'grow',
+  'teeter',
+  'disappear',
+  'fadeOut',
+  'flyOut',
+  'wipeOut',
+  'shrink',
+  'zoomOut',
+])
+const ANIM_TRIGGERS = new Set<string>(['onClick', 'withPrev', 'afterPrev'])
 
 // ── Generation progress events (for the onProgress callback; renderer memory only, never persisted or journaled) ──
 
@@ -276,6 +324,12 @@ Native tools (only for modifying/refining existing pages, not for generating fro
 - For data display use add_chart (native bar/line/pie charts); for structured comparisons use add_table (cells can pre-fill text; later edit_table_cell edits cells, edit_table_structure adds/removes rows/columns); for flows/cycles/hierarchies/lists use add_smartart.
 - set_slide_background sets a solid background (slideIndex=-1 for all pages); on dark backgrounds remember to lighten the text.
 - Refine page by page, element by element; 2–4 elements per page is enough — fewer beats crowded.
+
+Beyond the visible page (these finish a deck; a deck without them is a draft):
+- **Speaker notes on every content page** — set_slide_notes. The notes are the presenter's script: the argument the slide supports, the number behind the claim, the handover to the next page. Never restate the slide text; the audience can read it. After generating a deck, add notes page by page unless the user said not to.
+- set_element_link turns an element into a hyperlink — to a URL for a source or product page, or to another page for an agenda entry or a "back to contents" control.
+- set_slide_transition sets the page transition; pass slideIndex=-1 so the whole deck matches (mixed transitions look unplanned). 'fade' is the safe default; only use 'morph' when consecutive pages deliberately share shapes.
+- set_slide_animations reveals a page in steps — a list one point at a time, a diagram in stages. Order the items in the order they should play. Animate the one thing that carries the argument; animating everything is worse than animating nothing, and a deck read rather than presented needs none at all.
 - Keep replies short, say what you did; don't recite tool results back to the user.
 
 Search and images:
@@ -1089,6 +1143,120 @@ const TOOLS: AgentToolDef[] = [
     },
   },
   {
+    name: 'set_slide_notes',
+    description:
+      "Write a page's speaker notes (replaces them). Notes are the script the presenter reads — the argument the slide supports, the transition to the next page, the answer to the obvious question. Do not restate the slide text: the audience can already read it.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slideIndex: { type: 'integer', description: 'Page number (0-based)' },
+        text: {
+          type: 'string',
+          description: 'Notes text; blank lines separate paragraphs. Empty string clears them.',
+        },
+      },
+      required: ['slideIndex', 'text'],
+    },
+  },
+  {
+    name: 'set_element_link',
+    description:
+      'Make an element a hyperlink — to a URL, or to another page in this deck (for an agenda or a "back to contents" control). Pass neither url nor targetSlideIndex to remove the link.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slideIndex: { type: 'integer' },
+        sourceId: { type: 'string', description: 'Element id from the deck outline / read_slide' },
+        url: { type: 'string', description: 'http(s) target' },
+        targetSlideIndex: { type: 'integer', description: 'jump to this page (0-based)' },
+      },
+      required: ['slideIndex', 'sourceId'],
+    },
+  },
+  {
+    name: 'set_slide_transition',
+    description:
+      "Set the page transition. slideIndex=-1 applies to the whole deck, which is usually what you want — mixed transitions look unplanned. 'morph' animates shapes shared between consecutive pages and needs those pages to be built for it; 'fade' is the safe default.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slideIndex: { type: 'integer', description: 'Page number (0-based); -1 = all pages' },
+        kind: {
+          type: 'string',
+          enum: [
+            'none',
+            'morph',
+            'fade',
+            'push',
+            'wipe',
+            'split',
+            'circle',
+            'cover',
+            'pull',
+            'dissolve',
+            'zoom',
+            'random',
+          ],
+        },
+      },
+      required: ['slideIndex', 'kind'],
+    },
+  },
+  {
+    name: 'set_slide_animations',
+    description:
+      "Replace a page's animation list (list order = play order). Pass an empty items array to clear. Use it to reveal a list a point at a time or to bring in a diagram in stages; animating everything is worse than animating nothing.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slideIndex: { type: 'integer' },
+        items: {
+          type: 'array',
+          description: 'Play order; an element may appear more than once',
+          items: {
+            type: 'object',
+            properties: {
+              sourceId: { type: 'string' },
+              effect: {
+                type: 'string',
+                enum: [
+                  'appear',
+                  'fade',
+                  'flyIn',
+                  'wipe',
+                  'wipeDown',
+                  'splitIn',
+                  'bounce',
+                  'flipIn',
+                  'zoom',
+                  'pulse',
+                  'spin',
+                  'grow',
+                  'teeter',
+                  'disappear',
+                  'fadeOut',
+                  'flyOut',
+                  'wipeOut',
+                  'shrink',
+                  'zoomOut',
+                ],
+              },
+              trigger: { type: 'string', enum: ['onClick', 'withPrev', 'afterPrev'] },
+              durationMs: { type: 'integer', description: 'default 500' },
+              delayMs: { type: 'integer', description: 'default 0' },
+              paragraph: {
+                type: 'integer',
+                description: 'animate one paragraph (0-based) instead of the whole shape',
+              },
+            },
+            required: ['sourceId', 'effect'],
+          },
+        },
+      },
+      required: ['slideIndex', 'items'],
+    },
+  },
+  {
     name: 'delete_element',
     description: 'Delete one element from a page.',
     inputSchema: {
@@ -1634,8 +1802,23 @@ async function executeTool(
       const slide = slides[idx]
       if (!slide)
         return fail(t('aiFailReadSlide'), `slideIndex out of range (0-${slides.length - 1})`)
+      // Notes and links are not on the canvas, so a dump of the nodes alone
+      // leaves the model unable to tell an un-noted page from a noted one —
+      // and it would then write the notes twice.
+      // Supplementary, so it degrades: a host without these bridges still gets
+      // the slide dump rather than an error from a read-only tool.
+      const [notes, links] = await Promise.all([
+        Promise.resolve(window.slidesApi?.getNotes?.(idx)).catch(() => ''),
+        Promise.resolve(window.slidesApi?.getSlideLinks?.(idx)).catch(() => []),
+      ])
+      const noted = (notes ?? '').trim()
+      const linked = links ?? []
+      const extras = [
+        noted ? `\nSpeaker notes: ${noted}` : '\nSpeaker notes: (none)',
+        linked.length ? `\nLinked elements: ${linked.map((l) => l.sourceId).join(', ')}` : '',
+      ].join('')
       return {
-        output: formatSlideDump(slide),
+        output: formatSlideDump(slide) + extras,
         mutated: false,
         summary: t('aiSumReadSlide', { n: idx + 1 }),
       }
@@ -3319,6 +3502,109 @@ async function executeTool(
             : `Set the background of page ${idx + 1} to ${color}.`,
         mutated: true,
         summary: idx === -1 ? t('aiSumBackgroundAll') : t('aiSumBackground', { n: idx + 1 }),
+      }
+    }
+
+    case 'set_slide_notes': {
+      const idx = Number(call.input.slideIndex)
+      if (!slides[idx])
+        return fail(t('aiFailNotes'), `slideIndex out of range (0-${slides.length - 1})`)
+      const text = String(call.input.text ?? '')
+      const ok = await window.slidesApi.setNotes({ slideIndex: idx, text })
+      if (!ok) return fail(t('aiFailNotes'), 'Could not write the notes')
+      // Notes live outside the rendered slide, so nothing on the canvas changes;
+      // still a document mutation for save/undo purposes.
+      return {
+        output: text.trim()
+          ? `Wrote ${text.length} characters of speaker notes on page ${idx + 1}.`
+          : `Cleared the speaker notes on page ${idx + 1}.`,
+        mutated: true,
+        summary: t('aiSumSetNotes', { n: idx + 1 }),
+      }
+    }
+
+    case 'set_element_link': {
+      const idx = Number(call.input.slideIndex)
+      const sourceId = String(call.input.sourceId ?? '')
+      if (!slides[idx])
+        return fail(t('aiFailLink'), `slideIndex out of range (0-${slides.length - 1})`)
+      if (!findNodeById(slides[idx]!.nodes, sourceId))
+        return fail(t('aiFailLink'), `Element ${sourceId} not found on page ${idx + 1}`)
+      const url = String(call.input.url ?? '').trim()
+      const toSlide = call.input.targetSlideIndex
+      let target: LinkTargetOp | null = null
+      if (url) {
+        if (!/^https?:\/\//i.test(url))
+          return fail(t('aiFailLink'), 'url must start with http:// or https://')
+        target = { kind: 'url', url }
+      } else if (toSlide !== undefined && toSlide !== null) {
+        const n = Number(toSlide)
+        if (!slides[n])
+          return fail(t('aiFailLink'), `targetSlideIndex out of range (0-${slides.length - 1})`)
+        target = { kind: 'slide', slideIndex: n }
+      }
+      const r = await window.slidesApi.setLink({ slideIndex: idx, sourceId, target })
+      if (!r) return fail(t('aiFailLink'), 'Could not set the link')
+      access.applySlide(idx, r)
+      return {
+        output: target
+          ? `Linked ${sourceId} on page ${idx + 1} to ${target.kind === 'url' ? target.url : `page ${target.slideIndex + 1}`}.`
+          : `Removed the link on ${sourceId} (page ${idx + 1}).`,
+        mutated: true,
+        summary: t('aiSumSetLink', { n: idx + 1 }),
+      }
+    }
+
+    case 'set_slide_transition': {
+      const idx = Number(call.input.slideIndex)
+      if (idx !== -1 && !slides[idx])
+        return fail(t('aiFailTransition'), `slideIndex out of range (0-${slides.length - 1} or -1)`)
+      const kind = String(call.input.kind ?? '') as TransitionKind
+      if (!TRANSITION_KINDS.has(kind))
+        return fail(t('aiFailTransition'), `Unknown transition "${kind}"`)
+      const ok = await window.slidesApi.setTransition({ slideIndex: idx, kind })
+      if (!ok) return fail(t('aiFailTransition'), 'Could not set the transition')
+      return {
+        output:
+          idx === -1
+            ? `Set the "${kind}" transition on all ${slides.length} pages.`
+            : `Set the "${kind}" transition on page ${idx + 1}.`,
+        mutated: true,
+        summary: t('aiSumSetTransition'),
+      }
+    }
+
+    case 'set_slide_animations': {
+      const idx = Number(call.input.slideIndex)
+      if (!slides[idx])
+        return fail(t('aiFailAnimation'), `slideIndex out of range (0-${slides.length - 1})`)
+      const raw = Array.isArray(call.input.items) ? call.input.items : []
+      const items: Array<Omit<AnimationItem, 'targetName'>> = []
+      for (const entry of raw as Array<Record<string, unknown>>) {
+        const sourceId = String(entry.sourceId ?? '')
+        const effect = String(entry.effect ?? '') as AnimEffectKind
+        if (!findNodeById(slides[idx]!.nodes, sourceId))
+          return fail(t('aiFailAnimation'), `Element ${sourceId} not found on page ${idx + 1}`)
+        if (!ANIM_EFFECTS.has(effect))
+          return fail(t('aiFailAnimation'), `Unknown effect "${effect}" on ${sourceId}`)
+        const trigger = String(entry.trigger ?? 'onClick') as AnimTrigger
+        items.push({
+          sourceId,
+          effect,
+          trigger: ANIM_TRIGGERS.has(trigger) ? trigger : 'onClick',
+          durationMs: Number(entry.durationMs ?? 500),
+          delayMs: Number(entry.delayMs ?? 0),
+          ...(entry.paragraph !== undefined ? { paragraph: Number(entry.paragraph) } : {}),
+        })
+      }
+      const ok = await window.slidesApi.setAnimations({ slideIndex: idx, items })
+      if (!ok) return fail(t('aiFailAnimation'), 'Could not set the animations')
+      return {
+        output: items.length
+          ? `Set ${items.length} animation step(s) on page ${idx + 1}, in the order given.`
+          : `Cleared the animations on page ${idx + 1}.`,
+        mutated: true,
+        summary: t('aiSumSetAnimation', { n: idx + 1 }),
       }
     }
 
