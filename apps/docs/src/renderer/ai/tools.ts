@@ -129,6 +129,35 @@ export const AGENT_TOOLS: AgentToolDef[] = [
     },
   },
   {
+    name: 'generate_image',
+    description:
+      'Generate an illustration from a description and insert it into the document (at the cursor / end of document). Use for diagrams, covers and illustrations that no web image search would find; for a photo of something real, prefer image_search + insert_image.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: {
+          type: 'string',
+          description:
+            'what the image should show, in detail: subject, composition, style, colours. English works better.',
+        },
+        size: {
+          type: 'string',
+          enum: ['1024x1024', '1536x1024', '1024x1536'],
+          description: 'square, landscape or portrait; default square',
+        },
+        transparent: {
+          type: 'boolean',
+          description: 'cut out the background (for logos and icons placed over text)',
+        },
+        maxWidthPx: {
+          type: 'integer',
+          description: 'maximum width in the document (px), default 480',
+        },
+      },
+      required: ['prompt'],
+    },
+  },
+  {
     name: 'insert_chart',
     description:
       'Insert a chart (saved as a native Word chart). Data must be real: from the document content or web_search results — do not make up numbers.',
@@ -276,46 +305,81 @@ async function executeAsyncTool(editor: Editor, call: AgentToolCall): Promise<To
         summary: t('aiSumImageSearchDone', { query, count: r.images.length }),
       }
     }
+    case 'generate_image': {
+      const prompt = String(call.input.prompt ?? '').trim()
+      if (!prompt) return fail(t('aiSumGenerateImage'), 'the prompt is empty')
+      const generated = await window.desktop.generateImage({
+        prompt,
+        size: call.input.size ? String(call.input.size) : undefined,
+        transparent: call.input.transparent === true,
+      })
+      if (!generated.ok || !generated.base64) {
+        return fail(t('aiSumGenerateImage'), generated.error ?? 'generation failed')
+      }
+      return insertImageNode(
+        editor,
+        { base64: generated.base64, mime: generated.mime ?? 'image/png' },
+        Number(call.input.maxWidthPx) || 480,
+        t('aiSumGenerateImage'),
+        'Image (generated)',
+      )
+    }
     case 'insert_image': {
       const url = String(call.input.url ?? '')
       if (!/^https?:\/\//.test(url)) return fail(t('aiSumInsertImage'), 'invalid url')
       const fetched = await window.desktop.fetchImage(url)
       if (!fetched)
         return fail(t('aiSumInsertImage'), 'download failed (the image may not be accessible)')
-      const dataUrl = `data:${fetched.mime};base64,${fetched.base64}`
-      const maxW = Number(call.input.maxWidthPx) || 480
-      try {
-        const natural = await imageSizeOf(dataUrl)
-        const scale = Math.min(1, maxW / natural.width)
-        const w = Math.round(natural.width * scale)
-        const h = Math.round(natural.height * scale)
-        editor
-          .chain()
-          .focus()
-          .insertContent({
-            type: 'docProtected',
-            attrs: {
-              docxIndex: null,
-              blockType: 'image',
-              label: 'Image (web)',
-              imageDataUrl: dataUrl,
-              imageWidthPx: w,
-              imageHeightPx: h,
-              genImage: { base64: fetched.base64, mime: fetched.mime, widthPx: w, heightPx: h },
-            },
-          })
-          .run()
-        return {
-          output: `Inserted the image (${w}×${h}px).`,
-          mutated: true,
-          summary: t('aiSumInsertWebImage'),
-        }
-      } catch {
-        return fail(t('aiSumInsertImage'), 'the image could not be decoded')
-      }
+      return insertImageNode(
+        editor,
+        fetched,
+        Number(call.input.maxWidthPx) || 480,
+        t('aiSumInsertWebImage'),
+        'Image (web)',
+      )
     }
     default:
       return fail(t('aiSumUnknownTool'), call.name)
+  }
+}
+
+/**
+ * Decode, scale to fit, and insert as a protected image block. Shared by
+ * insert_image (downloaded) and generate_image (produced by the provider) —
+ * the bytes arrive the same way, only their origin differs.
+ */
+async function insertImageNode(
+  editor: Editor,
+  image: { base64: string; mime: string },
+  maxWidthPx: number,
+  summary: string,
+  label: string,
+): Promise<ToolExecution> {
+  const dataUrl = `data:${image.mime};base64,${image.base64}`
+  try {
+    const natural = await imageSizeOf(dataUrl)
+    const scale = Math.min(1, maxWidthPx / natural.width)
+    const w = Math.round(natural.width * scale)
+    const h = Math.round(natural.height * scale)
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: 'docProtected',
+        attrs: {
+          docxIndex: null,
+          blockType: 'image',
+          label,
+          imageDataUrl: dataUrl,
+          imageWidthPx: w,
+          imageHeightPx: h,
+          genImage: { base64: image.base64, mime: image.mime, widthPx: w, heightPx: h },
+        },
+      })
+      .run()
+    return { output: `Inserted the image (${w}×${h}px).`, mutated: true, summary }
+  } catch {
+    return { output: 'the image could not be decoded', isError: true, mutated: false, summary }
   }
 }
 
@@ -326,7 +390,12 @@ export function executeTool(
   track?: AiTrack,
 ): ToolExecution | Promise<ToolExecution> {
   // async tools (search/image insertion) take a separate Promise branch; the other sync tools keep returning synchronously (doesn't break existing tests).
-  if (call.name === 'web_search' || call.name === 'image_search' || call.name === 'insert_image') {
+  if (
+    call.name === 'web_search' ||
+    call.name === 'image_search' ||
+    call.name === 'insert_image' ||
+    call.name === 'generate_image'
+  ) {
     return executeAsyncTool(editor, call)
   }
   switch (call.name) {

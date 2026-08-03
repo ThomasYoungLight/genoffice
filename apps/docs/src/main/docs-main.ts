@@ -10,8 +10,18 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { basename, join } from 'node:path'
-import { BrowserWindow, Menu, WebContentsView, app, dialog, ipcMain, shell } from 'electron'
 import {
+  BrowserWindow,
+  Menu,
+  WebContentsView,
+  app,
+  dialog,
+  ipcMain,
+  safeStorage,
+  shell,
+} from 'electron'
+import {
+  createAiSettingsStore,
   fetchWithSsrfGuard,
   installNavigationGuard,
   safeExternalUrl,
@@ -25,18 +35,31 @@ import type {
   SaveDialogOptions,
   WebContents,
 } from 'electron'
+import type { AgentToolCall } from '@genoffice/agent-core'
 import { parseFileToText } from '@genoffice/file-parse'
 import {
+  cliStatus,
+  isCliProvider,
+  listCliModels,
+  streamAgentCli,
+  testAgentCli,
+} from '@genoffice/ai-cli'
+import {
   chatForProvider,
-  defaultAiSettings,
-  resolveAiSettings,
+  isAiProviderId,
+  isLocalCliProvider,
+  generateProviderImage,
+  listProviderModels,
+  providerGeneratesImages,
   streamForProvider,
+  testProvider,
   type AiChatRequest,
+  type AiProviderId,
+  type AiProviderProbeRequest,
   type AiSettings,
   type AiStreamChunk,
   type AiStreamRequest,
   type GenSparkAccountStatus,
-  type LegacyAiSettings,
 } from '@genoffice/ai-provider'
 import {
   gskApiKey,
@@ -99,9 +122,11 @@ const tMain = createI18n({
     errParseFailed: '文件解析失败',
     errImageNoText: '图片附件不提供文本,已作为图像随用户消息发送,直接看图即可',
     errNotImage: '不是支持的图片类型',
-    errGskNotLoggedIn: '未登录 Genspark:请点击下方「登录 Genspark」完成登录后重试',
+    errAiNotConfigured: '尚未配置 AI 模型：请在「AI 模型」设置中选择一个后重试',
     errNoApiKey: '未配置 {provider} 的 API Key',
     errNoModel: '未配置模型名称',
+    errNoImageProvider:
+      '当前 AI 提供方不支持生成图片。请在「AI 模型」设置中选择支持的提供方（如 OpenAI）。',
     menuFile: '文件',
     menuNewDoc: '新建文档',
     menuNewWindow: '新建窗口',
@@ -189,10 +214,12 @@ const tMain = createI18n({
     errParseFailed: 'Failed to parse file',
     errImageNoText: 'Image attachments have no text; the image is sent along with the user message',
     errNotImage: 'not a supported image type',
-    errGskNotLoggedIn:
-      'Not signed in to Genspark: click “Sign in to Genspark” below, sign in, then retry',
+    errAiNotConfigured:
+      'No AI model is configured. Choose one in AI model settings, then try again.',
     errNoApiKey: 'No API key configured for {provider}',
     errNoModel: 'No model name configured',
+    errNoImageProvider:
+      'The current AI provider cannot generate images. Choose one that can (e.g. OpenAI) in AI model settings.',
     menuFile: 'File',
     menuNewDoc: 'New Document',
     menuNewWindow: 'New Window',
@@ -280,10 +307,12 @@ const tMain = createI18n({
     errImageNoText:
       '画像の添付ファイルはテキストを提供しません。画像としてユーザーメッセージと一緒に送信されるため、そのまま画像をご確認ください',
     errNotImage: 'サポートされていない画像形式です',
-    errGskNotLoggedIn:
-      'Genspark にサインインしていません。下の「Genspark にサインイン」からサインインして再試行してください',
+    errAiNotConfigured:
+      'AI モデルが未設定です。「AI モデル」設定で選択してから再試行してください。',
     errNoApiKey: '{provider} の API キーが設定されていません',
     errNoModel: 'モデル名が設定されていません',
+    errNoImageProvider:
+      '現在の AI プロバイダーは画像生成に対応していません。AI モデル設定で対応するプロバイダー（OpenAI など）を選んでください。',
     menuFile: 'ファイル',
     menuNewDoc: '新規文書',
     menuNewWindow: '新規ウィンドウ',
@@ -372,10 +401,12 @@ const tMain = createI18n({
     errImageNoText:
       '이미지 첨부 파일은 텍스트를 제공하지 않으며, 이미지 형태로 사용자 메시지와 함께 전송되므로 이미지를 직접 확인하면 됩니다',
     errNotImage: '지원되지 않는 이미지 형식입니다',
-    errGskNotLoggedIn:
-      'Genspark에 로그인되어 있지 않습니다. 아래 "Genspark 로그인"을 눌러 로그인한 뒤 다시 시도하세요',
+    errAiNotConfigured:
+      'AI 모델이 설정되지 않았습니다. "AI 모델" 설정에서 선택한 뒤 다시 시도하세요.',
     errNoApiKey: '{provider}의 API 키가 설정되지 않았습니다',
     errNoModel: '모델 이름이 설정되지 않았습니다',
+    errNoImageProvider:
+      '현재 AI 제공자는 이미지 생성을 지원하지 않습니다. AI 모델 설정에서 지원하는 제공자(예: OpenAI)를 선택하세요.',
     menuFile: '파일',
     menuNewDoc: '새 문서',
     menuNewWindow: '새 창',
@@ -465,10 +496,12 @@ const tMain = createI18n({
     errImageNoText:
       "Les pièces jointes image ne fournissent pas de texte ; l'image est envoyée avec le message de l'utilisateur, consultez-la directement",
     errNotImage: "type d'image non pris en charge",
-    errGskNotLoggedIn:
-      'Non connecté à Genspark : cliquez sur « Se connecter à Genspark » ci-dessous, connectez-vous puis réessayez',
+    errAiNotConfigured:
+      'Aucun modèle IA configuré. Choisissez-en un dans les paramètres « Modèle IA », puis réessayez.',
     errNoApiKey: 'Aucune clé API configurée pour {provider}',
     errNoModel: 'Aucun nom de modèle configuré',
+    errNoImageProvider:
+      "Le fournisseur d'IA actuel ne peut pas générer d'images. Choisissez-en un qui le peut (OpenAI, par exemple) dans les paramètres du modèle IA.",
     menuFile: 'Fichier',
     menuNewDoc: 'Nouveau document',
     menuNewWindow: 'Nouvelle fenêtre',
@@ -558,10 +591,12 @@ const tMain = createI18n({
     errImageNoText:
       'Bildanlagen liefern keinen Text; das Bild wird mit der Benutzernachricht gesendet und kann direkt betrachtet werden',
     errNotImage: 'kein unterstütztes Bildformat',
-    errGskNotLoggedIn:
-      'Nicht bei Genspark angemeldet: Klicken Sie unten auf „Bei Genspark anmelden“, melden Sie sich an und versuchen Sie es erneut',
+    errAiNotConfigured:
+      'Kein KI-Modell konfiguriert. Wählen Sie eines in den KI-Modell-Einstellungen und versuchen Sie es erneut.',
     errNoApiKey: 'Kein API-Schlüssel für {provider} konfiguriert',
     errNoModel: 'Kein Modellname konfiguriert',
+    errNoImageProvider:
+      'Der aktuelle KI-Anbieter kann keine Bilder erzeugen. Wählen Sie in den KI-Modelleinstellungen einen Anbieter, der das kann (z. B. OpenAI).',
     menuFile: 'Datei',
     menuNewDoc: 'Neues Dokument',
     menuNewWindow: 'Neues Fenster',
@@ -650,10 +685,12 @@ const tMain = createI18n({
     errImageNoText:
       'Las imágenes adjuntas no proporcionan texto; la imagen se envía junto con el mensaje del usuario, puedes verla directamente',
     errNotImage: 'no es un tipo de imagen compatible',
-    errGskNotLoggedIn:
-      'No has iniciado sesión en Genspark: pulsa «Iniciar sesión en Genspark» abajo, inicia sesión y vuelve a intentarlo',
+    errAiNotConfigured:
+      'No hay ningún modelo de IA configurado. Elige uno en los ajustes de «Modelo de IA» y vuelve a intentarlo.',
     errNoApiKey: 'No hay clave de API configurada para {provider}',
     errNoModel: 'No se ha configurado el nombre del modelo',
+    errNoImageProvider:
+      'El proveedor de IA actual no puede generar imágenes. Elige uno que sí pueda (por ejemplo, OpenAI) en la configuración del modelo de IA.',
     menuFile: 'Archivo',
     menuNewDoc: 'Nuevo documento',
     menuNewWindow: 'Nueva ventana',
@@ -741,10 +778,12 @@ const tMain = createI18n({
     errImageNoText:
       'สิ่งที่แนบเป็นรูปภาพไม่มีข้อความ รูปจะถูกส่งไปพร้อมข้อความของผู้ใช้ ดูรูปได้โดยตรง',
     errNotImage: 'ไม่ใช่ชนิดรูปภาพที่รองรับ',
-    errGskNotLoggedIn:
-      'ยังไม่ได้ลงชื่อเข้าใช้ Genspark: แตะ “ลงชื่อเข้าใช้ Genspark” ด้านล่าง แล้วลองอีกครั้ง',
+    errAiNotConfigured:
+      'ยังไม่ได้ตั้งค่าโมเดล AI กรุณาเลือกในการตั้งค่า "โมเดล AI" แล้วลองอีกครั้ง',
     errNoApiKey: 'ยังไม่ได้ตั้งค่า API Key ของ {provider}',
     errNoModel: 'ยังไม่ได้ตั้งค่าชื่อโมเดล',
+    errNoImageProvider:
+      'ผู้ให้บริการ AI ปัจจุบันสร้างภาพไม่ได้ กรุณาเลือกผู้ให้บริการที่รองรับ (เช่น OpenAI) ในการตั้งค่าโมเดล AI',
     menuFile: 'ไฟล์',
     menuNewDoc: 'เอกสารใหม่',
     menuNewWindow: 'หน้าต่างใหม่',
@@ -833,9 +872,12 @@ const tMain = createI18n({
     errImageNoText:
       'Lampiran gambar tidak menyediakan teks; gambar dikirim bersama pesan pengguna dan dapat dilihat langsung',
     errNotImage: 'bukan jenis gambar yang didukung',
-    errGskNotLoggedIn: 'Belum masuk ke Genspark: klik “Masuk ke Genspark” di bawah, lalu coba lagi',
+    errAiNotConfigured:
+      'Belum ada model AI yang dikonfigurasi. Pilih satu di pengaturan Model AI, lalu coba lagi.',
     errNoApiKey: 'API Key untuk {provider} belum dikonfigurasi',
     errNoModel: 'Nama model belum dikonfigurasi',
+    errNoImageProvider:
+      'Penyedia AI saat ini tidak dapat membuat gambar. Pilih penyedia yang bisa (misalnya OpenAI) di pengaturan model AI.',
     menuFile: 'File',
     menuNewDoc: 'Dokumen Baru',
     menuNewWindow: 'Jendela Baru',
@@ -924,10 +966,12 @@ const tMain = createI18n({
     errImageNoText:
       'Вложенные изображения не содержат текста; изображение отправляется вместе с сообщением пользователя, смотрите его напрямую',
     errNotImage: 'неподдерживаемый тип изображения',
-    errGskNotLoggedIn:
-      'Вы не вошли в Genspark: нажмите «Войти в Genspark» ниже, войдите и повторите попытку',
+    errAiNotConfigured:
+      'Модель ИИ не настроена. Выберите её в настройках «Модель ИИ» и повторите попытку.',
     errNoApiKey: 'API-ключ для {provider} не настроен',
     errNoModel: 'Не указано имя модели',
+    errNoImageProvider:
+      'Текущий поставщик ИИ не умеет генерировать изображения. Выберите подходящего (например, OpenAI) в настройках модели ИИ.',
     menuFile: 'Файл',
     menuNewDoc: 'Создать документ',
     menuNewWindow: 'Новое окно',
@@ -1016,10 +1060,12 @@ const tMain = createI18n({
     errImageNoText:
       'مرفقات الصور لا توفر نصًا؛ تُرسل الصورة مع رسالة المستخدم ويمكن الاطلاع عليها مباشرة',
     errNotImage: 'ليس نوع صورة مدعومًا',
-    errGskNotLoggedIn:
-      'لم تسجّل الدخول إلى Genspark: انقر على «تسجيل الدخول إلى Genspark» أدناه ثم أعد المحاولة',
+    errAiNotConfigured:
+      'لم يتم تكوين أي نموذج ذكاء اصطناعي. اختر واحدًا من إعدادات «نموذج الذكاء الاصطناعي» ثم أعد المحاولة.',
     errNoApiKey: 'لم يتم تكوين مفتاح API لـ {provider}',
     errNoModel: 'لم يتم تكوين اسم النموذج',
+    errNoImageProvider:
+      'مزوّد الذكاء الاصطناعي الحالي لا يدعم توليد الصور. اختر مزوّدًا يدعمه (مثل OpenAI) من إعدادات نموذج الذكاء الاصطناعي.',
     menuFile: 'ملف',
     menuNewDoc: 'مستند جديد',
     menuNewWindow: 'نافذة جديدة',
@@ -1108,10 +1154,12 @@ const tMain = createI18n({
     errImageNoText:
       'Anexos de imagem não fornecem texto; a imagem é enviada junto com a mensagem do usuário, basta vê-la diretamente',
     errNotImage: 'não é um tipo de imagem suportado',
-    errGskNotLoggedIn:
-      'Não conectado ao Genspark: clique em “Entrar no Genspark” abaixo, entre e tente novamente',
+    errAiNotConfigured:
+      'Nenhum modelo de IA configurado. Escolha um nas configurações de Modelo de IA e tente novamente.',
     errNoApiKey: 'Nenhuma chave de API configurada para {provider}',
     errNoModel: 'Nenhum nome de modelo configurado',
+    errNoImageProvider:
+      'O provedor de IA atual não gera imagens. Escolha um que gere (por exemplo, OpenAI) nas configurações do modelo de IA.',
     menuFile: 'Arquivo',
     menuNewDoc: 'Novo Documento',
     menuNewWindow: 'Nova Janela',
@@ -1200,10 +1248,12 @@ const tMain = createI18n({
     errImageNoText:
       "Gli allegati immagine non forniscono testo; l'immagine viene inviata insieme al messaggio dell'utente, basta guardarla direttamente",
     errNotImage: 'tipo di immagine non supportato',
-    errGskNotLoggedIn:
-      'Accesso a Genspark non effettuato: fai clic su “Accedi a Genspark” qui sotto, accedi e riprova',
+    errAiNotConfigured:
+      'Nessun modello IA configurato. Scegline uno nelle impostazioni «Modello IA» e riprova.',
     errNoApiKey: 'Nessuna chiave API configurata per {provider}',
     errNoModel: 'Nessun nome di modello configurato',
+    errNoImageProvider:
+      "L'attuale provider IA non può generare immagini. Sceglierne uno in grado di farlo (ad esempio OpenAI) nelle impostazioni del modello IA.",
     menuFile: 'File',
     menuNewDoc: 'Nuovo documento',
     menuNewWindow: 'Nuova finestra',
@@ -1292,10 +1342,12 @@ const tMain = createI18n({
     errImageNoText:
       'Załączniki graficzne nie zawierają tekstu; obraz jest wysyłany razem z wiadomością użytkownika, wystarczy na niego spojrzeć',
     errNotImage: 'nieobsługiwany typ obrazu',
-    errGskNotLoggedIn:
-      'Nie zalogowano do Genspark: kliknij „Zaloguj się do Genspark” poniżej, zaloguj się i spróbuj ponownie',
+    errAiNotConfigured:
+      'Nie skonfigurowano modelu AI. Wybierz go w ustawieniach „Model AI” i spróbuj ponownie.',
     errNoApiKey: 'Nie skonfigurowano klucza API dla {provider}',
     errNoModel: 'Nie skonfigurowano nazwy modelu',
+    errNoImageProvider:
+      'Bieżący dostawca AI nie generuje obrazów. Wybierz takiego, który to potrafi (np. OpenAI), w ustawieniach modelu AI.',
     menuFile: 'Plik',
     menuNewDoc: 'Nowy dokument',
     menuNewWindow: 'Nowe okno',
@@ -1384,10 +1436,12 @@ const tMain = createI18n({
     errImageNoText:
       'Afbeeldingsbijlagen bevatten geen tekst; de afbeelding wordt samen met het gebruikersbericht verzonden en kan direct worden bekeken',
     errNotImage: 'geen ondersteund afbeeldingstype',
-    errGskNotLoggedIn:
-      'Niet aangemeld bij Genspark: klik hieronder op “Aanmelden bij Genspark”, meld u aan en probeer het opnieuw',
+    errAiNotConfigured:
+      'Er is geen AI-model geconfigureerd. Kies er een bij de AI-model-instellingen en probeer het opnieuw.',
     errNoApiKey: 'Geen API-sleutel geconfigureerd voor {provider}',
     errNoModel: 'Geen modelnaam geconfigureerd',
+    errNoImageProvider:
+      'De huidige AI-aanbieder kan geen afbeeldingen genereren. Kies er een die dat wel kan (bijvoorbeeld OpenAI) in de AI-modelinstellingen.',
     menuFile: 'Bestand',
     menuNewDoc: 'Nieuw document',
     menuNewWindow: 'Nieuw venster',
@@ -1476,10 +1530,12 @@ const tMain = createI18n({
     errImageNoText:
       'Lampiran imej tidak menyediakan teks; imej dihantar bersama mesej pengguna dan boleh dilihat terus',
     errNotImage: 'bukan jenis imej yang disokong',
-    errGskNotLoggedIn:
-      'Belum log masuk ke Genspark: klik “Log masuk ke Genspark” di bawah, kemudian cuba lagi',
+    errAiNotConfigured:
+      'Tiada model AI dikonfigurasikan. Pilih satu dalam tetapan Model AI, kemudian cuba lagi.',
     errNoApiKey: 'Kunci API untuk {provider} belum dikonfigurasikan',
     errNoModel: 'Nama model belum dikonfigurasikan',
+    errNoImageProvider:
+      'Penyedia AI semasa tidak boleh menjana imej. Pilih penyedia yang boleh (contohnya OpenAI) dalam tetapan model AI.',
     menuFile: 'Fail',
     menuNewDoc: 'Dokumen Baharu',
     menuNewWindow: 'Tetingkap Baharu',
@@ -1567,9 +1623,11 @@ const tMain = createI18n({
     errImageNoText:
       'קבצים מצורפים מסוג תמונה אינם מספקים טקסט; התמונה נשלחת יחד עם הודעת המשתמש וניתן לצפות בה ישירות',
     errNotImage: 'סוג תמונה שאינו נתמך',
-    errGskNotLoggedIn: 'לא מחובר ל-Genspark: לחץ על "התחבר ל-Genspark" למטה, התחבר ונסה שוב',
+    errAiNotConfigured: 'לא הוגדר מודל AI. בחר מודל בהגדרות "מודל AI" ונסה שוב.',
     errNoApiKey: 'לא הוגדר מפתח API עבור {provider}',
     errNoModel: 'לא הוגדר שם מודל',
+    errNoImageProvider:
+      'ספק ה-AI הנוכחי אינו יוצר תמונות. בחר ספק שתומך בכך (למשל OpenAI) בהגדרות מודל ה-AI.',
     menuFile: 'קובץ',
     menuNewDoc: 'מסמך חדש',
     menuNewWindow: 'חלון חדש',
@@ -1658,10 +1716,12 @@ const tMain = createI18n({
     errImageNoText:
       'छवि अनुलग्नक टेक्स्ट प्रदान नहीं करते; छवि उपयोगकर्ता संदेश के साथ भेजी जाती है, उसे सीधे देखें',
     errNotImage: 'समर्थित छवि प्रकार नहीं है',
-    errGskNotLoggedIn:
-      'Genspark में साइन इन नहीं है: नीचे “Genspark में साइन इन करें” पर क्लिक करें, साइन इन करें और फिर से कोशिश करें',
+    errAiNotConfigured:
+      'कोई AI मॉडल कॉन्फ़िगर नहीं है। "AI मॉडल" सेटिंग्स में एक चुनें और फिर से प्रयास करें।',
     errNoApiKey: '{provider} के लिए कोई API कुंजी कॉन्फ़िगर नहीं है',
     errNoModel: 'कोई मॉडल नाम कॉन्फ़िगर नहीं है',
+    errNoImageProvider:
+      'मौजूदा AI प्रदाता छवि नहीं बना सकता। AI मॉडल सेटिंग में ऐसा प्रदाता चुनें जो यह कर सके (जैसे OpenAI)।',
     menuFile: 'फ़ाइल',
     menuNewDoc: 'नया दस्तावेज़',
     menuNewWindow: 'नई विंडो',
@@ -1748,9 +1808,11 @@ const tMain = createI18n({
     errParseFailed: '檔案解析失敗',
     errImageNoText: '圖片附件不提供文字,已作為影像隨使用者訊息傳送,直接看圖即可',
     errNotImage: '不是支援的圖片類型',
-    errGskNotLoggedIn: '未登入 Genspark:請點擊下方「登入 Genspark」完成登入後重試',
+    errAiNotConfigured: '尚未設定 AI 模型:請在「AI 模型」設定中選擇一個後重試',
     errNoApiKey: '未設定 {provider} 的 API Key',
     errNoModel: '未設定模型名稱',
+    errNoImageProvider:
+      '目前的 AI 提供者不支援產生圖片。請在「AI 模型」設定中改選支援的提供者（例如 OpenAI）。',
     menuFile: '檔案',
     menuNewDoc: '新增文件',
     menuNewWindow: '新增視窗',
@@ -2259,6 +2321,26 @@ const TWIPS_PER_INCH = 1440
 
 const SETTINGS_PATH = () => userDataPath('ai-settings.json')
 
+/**
+ * The one AI settings store for the whole suite: every app's main process
+ * reads and writes the same `userData/ai-settings.json`, so a provider
+ * configured in one editor applies in all of them.
+ */
+export const aiSettingsStore = createAiSettingsStore({
+  path: SETTINGS_PATH,
+  safeStorage,
+})
+
+/**
+ * The key to authenticate a request with. The genspark key comes from the gsk
+ * login state and a bring-your-own key from the settings file; either way it
+ * is resolved here rather than trusted from the renderer, which never receives
+ * one (see `createAiSettingsStore`).
+ */
+export function resolveAiApiKey(provider: AiProviderId): string {
+  return provider === 'genspark' ? gskApiKey() : aiSettingsStore.apiKeyFor(provider)
+}
+
 const activeAiStreams = new Map<string, AbortController>()
 
 /**
@@ -2267,13 +2349,7 @@ const activeAiStreams = new Map<string, AbortController>()
  * sheets' standalone AI handlers use the same channel names.
  */
 export function registerAiIpc(): void {
-  ipcMain.handle('ai:get-settings', (): AiSettings => {
-    const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(SETTINGS_PATH(), {})
-    const settings = resolveAiSettings(stored, defaultAiSettings())
-    // AI features all go through Genspark (gsk login); legacy settings with another provider are reset
-    settings.provider = 'genspark'
-    return settings
-  })
+  ipcMain.handle('ai:get-settings', (): AiSettings => aiSettingsStore.forRenderer())
 
   // Genspark account (gsk login state): auth source for AI features; the frontend uses it to prompt login when logged out
   ipcMain.handle(
@@ -2291,42 +2367,102 @@ export function registerAiIpc(): void {
   })
 
   ipcMain.handle('ai:set-settings', (_event, settings: AiSettings) => {
-    writeJson(SETTINGS_PATH(), settings)
+    aiSettingsStore.write(settings)
   })
+
+  // Settings-dialog probes: check a key before the user finds out mid-edit that
+  // it does not work, and refresh the model list from the provider itself.
+  ipcMain.handle('ai:test-provider', async (_event, request: AiProviderProbeRequest) => {
+    if (!isAiProviderId(request.provider)) return { ok: false, error: 'Unknown provider' }
+    const config = aiSettingsStore.probeConfigFor(request, resolveAiApiKey(request.provider))
+    if (isCliProvider(request.provider)) return testAgentCli(request.provider, config)
+    return testProvider(request.provider, config)
+  })
+
+  // Whether a locally installed agent CLI can be found, for the settings UI
+  ipcMain.handle('ai:cli-status', async (_event, provider: string) =>
+    isCliProvider(provider) ? cliStatus(provider) : { installed: false },
+  )
+
+  ipcMain.handle('ai:list-models', async (_event, request: AiProviderProbeRequest) => {
+    if (!isAiProviderId(request.provider)) return { ok: false, error: 'Unknown provider' }
+    if (isCliProvider(request.provider)) return listCliModels(request.provider)
+    const config = aiSettingsStore.probeConfigFor(request, resolveAiApiKey(request.provider))
+    return listProviderModels(request.provider, config)
+  })
+
+  /**
+   * Generate an image with the user's own provider key. The prompt comes from
+   * the renderer; the key, endpoint and image model come from the settings
+   * file, and only bytes go back — the same custody rule as every other keyed
+   * request here.
+   *
+   * Named for the bytes on purpose: slides owns `ai:generate-image`, which
+   * returns a hosted URL, and the shell registers both sets of channels in one
+   * process — a shared name there is a hard "second handler" error that takes
+   * the rest of that registration down with it.
+   */
+  ipcMain.handle(
+    'ai:generate-image-bytes',
+    async (_event, request: { prompt?: unknown; size?: unknown; transparent?: unknown }) => {
+      const settings = aiSettingsStore.forRenderer()
+      const provider = settings.provider
+      if (!providerGeneratesImages(provider)) {
+        return { ok: false, error: tm('errNoImageProvider') }
+      }
+      const config = aiSettingsStore.configFor(provider, '', resolveAiApiKey(provider))
+      return generateProviderImage(provider, config, aiSettingsStore.imageModelFor(provider), {
+        prompt: String(request?.prompt ?? ''),
+        size: typeof request?.size === 'string' ? request.size : undefined,
+        transparent: request?.transparent === true,
+      })
+    },
+  )
 
   ipcMain.handle('ai:stream', async (event, request: AiStreamRequest) => {
     const { requestId, settings, system, messages } = request
     const tools = request.tools ?? []
     const maxTokens = request.maxTokens ?? 8192
-    const provider = settings.provider
-    let config = settings.providers?.[provider]
-    // the genspark key never enters the settings file; requests take it from the gsk login state
-    if (provider === 'genspark' && config && !config.apiKey) {
-      config = { ...config, apiKey: gskApiKey() }
-    }
+    const provider = isAiProviderId(settings.provider) ? settings.provider : 'genspark'
+    // the renderer chooses the provider and model; the key and endpoint come
+    // from the main process (see AiSettingsStore.configFor)
+    const config = aiSettingsStore.configFor(
+      provider,
+      settings.providers?.[provider]?.model ?? '',
+      resolveAiApiKey(provider),
+    )
     const send = (chunk: AiStreamChunk) => {
       if (!event.sender.isDestroyed()) event.sender.send('ai:stream-chunk', chunk)
     }
-    if (!config?.apiKey) {
+    // A CLI backend has neither here: it authenticates through its own login
+    // and takes its model from its own config, so empty is the normal state.
+    const selfConfigured = isLocalCliProvider(provider)
+    if (!config?.apiKey && !selfConfigured) {
       send({
         requestId,
         type: 'error',
-        error: provider === 'genspark' ? tm('errGskNotLoggedIn') : tm('errNoApiKey', { provider }),
+        error: provider === 'genspark' ? tm('errAiNotConfigured') : tm('errNoApiKey', { provider }),
       })
       return
     }
-    if (!config.model) {
+    if (!config.model && !selfConfigured) {
       send({ requestId, type: 'error', error: tm('errNoModel') })
       return
     }
     const controller = new AbortController()
     activeAiStreams.set(requestId, controller)
     try {
-      await streamForProvider(provider, config, system, messages, tools, maxTokens, {
+      const callbacks = {
         signal: controller.signal,
-        onDelta: (text) => send({ requestId, type: 'delta', text }),
-        onToolCall: (toolCall) => send({ requestId, type: 'tool-call', toolCall }),
-      })
+        onDelta: (text: string) => send({ requestId, type: 'delta', text }),
+        onToolCall: (toolCall: AgentToolCall) => send({ requestId, type: 'tool-call', toolCall }),
+      }
+      // a local CLI is a subprocess, not an endpoint, so it bypasses the HTTP path
+      if (isCliProvider(provider)) {
+        await streamAgentCli(provider, config, system, messages, tools, callbacks)
+      } else {
+        await streamForProvider(provider, config, system, messages, tools, maxTokens, callbacks)
+      }
       send({ requestId, type: 'done' })
     } catch (err) {
       if (controller.signal.aborted) {
@@ -2387,18 +2523,22 @@ export function registerAiIpc(): void {
 
   ipcMain.handle('ai:chat', async (_event, request: AiChatRequest) => {
     const { settings, system, user } = request
-    const provider = settings.provider
-    let config = settings.providers?.[provider]
-    if (provider === 'genspark' && config && !config.apiKey) {
-      config = { ...config, apiKey: gskApiKey() }
-    }
-    if (!config?.apiKey) {
+    const provider = isAiProviderId(settings.provider) ? settings.provider : 'genspark'
+    const config = aiSettingsStore.configFor(
+      provider,
+      settings.providers?.[provider]?.model ?? '',
+      resolveAiApiKey(provider),
+    )
+    // A CLI backend has neither here: it authenticates through its own login
+    // and takes its model from its own config, so empty is the normal state.
+    const selfConfigured = isLocalCliProvider(provider)
+    if (!config.apiKey && !selfConfigured) {
       return {
         ok: false,
-        error: provider === 'genspark' ? tm('errGskNotLoggedIn') : tm('errNoApiKey', { provider }),
+        error: provider === 'genspark' ? tm('errAiNotConfigured') : tm('errNoApiKey', { provider }),
       }
     }
-    if (!config.model) return { ok: false, error: tm('errNoModel') }
+    if (!config.model && !selfConfigured) return { ok: false, error: tm('errNoModel') }
     try {
       return await chatForProvider(provider, config, system, user)
     } catch (err) {

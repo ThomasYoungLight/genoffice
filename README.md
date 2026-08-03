@@ -25,10 +25,31 @@ Other versions are on the [Releases](https://github.com/genspark-ai/genoffice/re
 
 Every app embeds the same AI panel: block-granular AI editing with version
 snapshots and diffs in docs, a tool-calling agent over workbook/slide/PDF
-state in the others.
+state in the others. Docs and slides can also **generate images** with your own
+key (`gpt-image-2` by default; set `providers.openai.imageModel` in the
+settings file to use another) and insert them straight into the document.
 
-**AI providers.** The apps sign in to a Genspark account and route model
-calls through the Genspark service side; no model API key is stored locally.
+**AI providers.** Three ways to power the AI panel: sign in to a Genspark
+account and route calls through the Genspark service with no key of your own;
+bring your own model API key (Claude, Gemini, DeepSeek, OpenAI — over its
+Responses API, so the reasoning models can use tools with reasoning on — or any
+OpenAI-compatible endpoint); or drive a coding-agent CLI you already have
+installed and signed in — **Claude Code** or **Codex** — which needs no API key
+and bills through that subscription rather than per token here.
+
+Set one up from the gear in any AI panel (or the home screen's Settings menu);
+the choice lives in `userData/ai-settings.json` and applies across all four
+editors. Once more than one is configured, the picker in the composer footer
+switches between them in a click — and a provider+model pairing can be saved
+as a named **preset** ("fast", "deep") so two models from the same provider are
+one click apart too. **Test** checks the key, model and endpoint with a
+one-token request before you rely on them, and the refresh button next to the
+model field re-reads the catalogue instead of a list baked into the build —
+from the provider's API, or from the CLI itself for a CLI backend, so it lists
+what that key or subscription can actually run today. Typing in the model field
+filters the list. Keys are encrypted with the OS keychain where one is available and
+are never handed to a renderer — the main process attaches the key when it
+makes the request. See [SECURITY.md](SECURITY.md).
 
 ## Engine packages
 
@@ -44,6 +65,9 @@ All pure TypeScript, no Electron dependency, unit-tested (except the UI kit):
   every app.
 - `packages/ai-provider` — provider abstraction and streaming for the model
   backends.
+- `packages/ai-cli` — locally installed agent CLIs (Claude Code, Codex) as AI
+  backends: detection, model discovery, subprocess streaming, and the
+  prompt-level tool-call protocol that lets an agent CLI drive the app's tools.
 - `packages/ai-search` — Genspark auth + web/image search tools.
 - `packages/i18n`, `packages/ui`, `packages/project-store`,
   `packages/electron-utils` — shared i18n core, React UI kit, recent-files

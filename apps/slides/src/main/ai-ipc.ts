@@ -4,20 +4,34 @@
  * to avoid renderer CORS), search tools, and the slides-only ai:* channels
  * (image generation, media analysis, style templates).
  */
-import { app, ipcMain } from 'electron'
+import { app, ipcMain, safeStorage } from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  defaultAiSettings,
-  resolveAiSettings,
+  isAiProviderId,
+  isLocalCliProvider,
+  generateProviderImage,
+  listProviderModels,
+  providerGeneratesImages,
   streamForProvider,
+  testProvider,
+  type AiProviderProbeRequest,
   type AiSettings,
   type AiStreamChunk,
   type AiStreamRequest,
   type GenSparkAccountStatus,
-  type LegacyAiSettings,
 } from '@genoffice/ai-provider'
-import { fetchWithSsrfGuard } from '@genoffice/electron-utils'
+import {
+  cliStatus,
+  isCliProvider,
+  listCliModels,
+  streamAgentCli,
+  testAgentCli,
+} from '@genoffice/ai-cli'
+import type { AgentToolCall } from '@genoffice/agent-core'
+import { createAiSettingsStore, fetchWithSsrfGuard } from '@genoffice/electron-utils'
 import {
   webSearch,
   imageSearch,
@@ -53,14 +67,16 @@ function writeJson(path: string, value: unknown): void {
 
 const activeAiStreams = new Map<string, AbortController>()
 
+/** the same userData/ai-settings.json the other apps use, so one setup covers the suite */
+const aiSettingsStore = createAiSettingsStore({ path: AI_SETTINGS_PATH, safeStorage })
+
+/** genspark authenticates from the gsk login state, every other provider from the settings file */
+function resolveAiApiKey(provider: AiSettings['provider']): string {
+  return provider === 'genspark' ? gskApiKey() : aiSettingsStore.apiKeyFor(provider)
+}
+
 export function registerAiIpc(): void {
-  ipcMain.handle('ai:get-settings', (): AiSettings => {
-    const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(AI_SETTINGS_PATH(), {})
-    const settings = resolveAiSettings(stored, defaultAiSettings())
-    // AI features all go through Genspark (gsk login); stored settings that chose another provider are normalized back
-    settings.provider = 'genspark'
-    return settings
-  })
+  ipcMain.handle('ai:get-settings', (): AiSettings => aiSettingsStore.forRenderer())
 
   // Genspark account (gsk login state): the auth source for AI features; when logged out the frontend uses this to guide login
   ipcMain.handle(
@@ -78,42 +94,74 @@ export function registerAiIpc(): void {
   })
 
   ipcMain.handle('ai:set-settings', (_event, settings: AiSettings) => {
-    writeJson(AI_SETTINGS_PATH(), settings)
+    aiSettingsStore.write(settings)
+  })
+
+  // Settings-dialog probes: verify a key up front, and refresh the model list
+  // from the provider rather than relying on the built-in catalogue.
+  ipcMain.handle('ai:test-provider', async (_event, request: AiProviderProbeRequest) => {
+    if (!isAiProviderId(request.provider)) return { ok: false, error: 'Unknown provider' }
+    const config = aiSettingsStore.probeConfigFor(request, resolveAiApiKey(request.provider))
+    if (isCliProvider(request.provider)) return testAgentCli(request.provider, config)
+    return testProvider(request.provider, config)
+  })
+
+  // Whether a locally installed agent CLI can be found, for the settings UI
+  ipcMain.handle('ai:cli-status', async (_event, provider: string) =>
+    isCliProvider(provider) ? cliStatus(provider) : { installed: false },
+  )
+
+  ipcMain.handle('ai:list-models', async (_event, request: AiProviderProbeRequest) => {
+    if (!isAiProviderId(request.provider)) return { ok: false, error: 'Unknown provider' }
+    if (isCliProvider(request.provider)) return listCliModels(request.provider)
+    const config = aiSettingsStore.probeConfigFor(request, resolveAiApiKey(request.provider))
+    return listProviderModels(request.provider, config)
   })
 
   ipcMain.handle('ai:stream', async (event, request: AiStreamRequest) => {
     const { requestId, settings, system, messages } = request
     const tools = request.tools ?? []
     const maxTokens = request.maxTokens ?? 8192
-    const provider = settings.provider
-    let config = settings.providers?.[provider]
-    // The genspark key never enters the settings file; it is fetched from the gsk login state per request
-    if (provider === 'genspark' && config && !config.apiKey) {
-      config = { ...config, apiKey: gskApiKey() }
-    }
+    const provider = isAiProviderId(settings.provider) ? settings.provider : 'genspark'
+    // the renderer picks the provider and model; the key and endpoint come from
+    // the main process (see AiSettingsStore.configFor)
+    const config = aiSettingsStore.configFor(
+      provider,
+      settings.providers?.[provider]?.model ?? '',
+      resolveAiApiKey(provider),
+    )
     const send = (chunk: AiStreamChunk) => {
       if (!event.sender.isDestroyed()) event.sender.send('ai:stream-chunk', chunk)
     }
-    if (!config?.apiKey) {
+    // A CLI backend has neither here: it authenticates through its own login
+    // and takes its model from its own config, so empty is the normal state.
+    const selfConfigured = isLocalCliProvider(provider)
+    if (!config.apiKey && !selfConfigured) {
       send({
         requestId,
         type: 'error',
-        error: provider === 'genspark' ? tm('errGskNotLoggedIn') : tm('errNoApiKey', { provider }),
+        error: provider === 'genspark' ? tm('errAiNotConfigured') : tm('errNoApiKey', { provider }),
       })
       return
     }
-    if (!config.model) {
+    if (!config.model && !selfConfigured) {
       send({ requestId, type: 'error', error: tm('errNoModel') })
       return
     }
     const controller = new AbortController()
     activeAiStreams.set(requestId, controller)
     try {
-      await streamForProvider(provider, config, system, messages, tools, maxTokens, {
+      const callbacks = {
         signal: controller.signal,
-        onDelta: (text) => send({ requestId, type: 'delta', text }),
-        onToolCall: (toolCall) => send({ requestId, type: 'tool-call', toolCall }),
-      })
+        onDelta: (text: string) => send({ requestId, type: 'delta', text }),
+        onToolCall: (toolCall: AgentToolCall) => send({ requestId, type: 'tool-call', toolCall }),
+      }
+      // a local CLI is a subprocess, not an endpoint, so it bypasses the HTTP path
+      if (isCliProvider(provider)) {
+        await streamAgentCli(provider, config, system, messages, tools, callbacks)
+      } else {
+        await streamForProvider(provider, config, system, messages, tools, maxTokens, callbacks)
+      }
       send({ requestId, type: 'done' })
     } catch (err) {
       if (controller.signal.aborted) {
@@ -155,6 +203,49 @@ export function registerAiIpc(): void {
 // generic ai:* channels are registered by docs-main.registerAiIpc, and slides' registerAiIpc is
 // never called; docs does not have these channels, so putting them in the wrong place raises
 // "No handler registered".
+/**
+ * Paths this process wrote itself, so a marker cannot be used to read an
+ * arbitrary file: the insert handler only accepts one it issued. Same shape as
+ * the cloud-page markers in slides-main.
+ */
+const issuedGeneratedImages = new Set<string>()
+const GENERATED_IMAGE_PREFIX = 'genimg:'
+
+/**
+ * A generated image arrives as bytes, but every insert path downstream takes a
+ * URL. Rather than a `file://` URL — which the SSRF guard rightly refuses, and
+ * should keep refusing for anything the model dreamt up — the bytes go to a
+ * temp file behind an opaque marker only this process can redeem. The base64
+ * never enters the model's context, where it would swamp the conversation.
+ */
+function writeGeneratedImage(base64: string, mime: string): string {
+  const ext = mime.includes('webp') ? 'webp' : mime.includes('jpeg') ? 'jpg' : 'png'
+  const file = join(tmpdir(), `genoffice-image-${randomUUID()}.${ext}`)
+  writeFileSync(file, Buffer.from(base64, 'base64'))
+  issuedGeneratedImages.add(file)
+  return GENERATED_IMAGE_PREFIX + file
+}
+
+/** bytes for an insert: a marker this process issued, or a guarded download */
+async function readImageForInsert(url: string): Promise<{ bytes: Buffer; ext: string } | null> {
+  if (url.startsWith(GENERATED_IMAGE_PREFIX)) {
+    const path = url.slice(GENERATED_IMAGE_PREFIX.length)
+    if (!issuedGeneratedImages.has(path)) return null
+    const ext = path.endsWith('.webp') ? 'webp' : path.endsWith('.jpg') ? 'jpg' : 'png'
+    return { bytes: readFileSync(path), ext }
+  }
+  // the URL originates from AI tool calls (prompt-injectable via image search
+  // results), so refuse non-http schemes and private/link-local targets;
+  // redirects are followed manually so every hop is validated
+  const resp = await fetchWithSsrfGuard(url, { headers: { 'User-Agent': 'Mozilla/5.0' } })
+  if (!resp || !resp.ok) return null
+  const ct = resp.headers.get('content-type') ?? ''
+  return {
+    bytes: Buffer.from(await resp.arrayBuffer()),
+    ext: ct.includes('png') ? 'png' : ct.includes('gif') ? 'gif' : 'jpg',
+  }
+}
+
 export function registerSlidesOnlyAiIpc(): void {
   // gsk (Genspark CLI) capabilities: AI image generation / media analysis. Returns an error prompt when not logged in.
   ipcMain.handle(
@@ -169,7 +260,29 @@ export function registerSlidesOnlyAiIpc(): void {
         imageSize?: string
       },
     ) => {
-      if (!hasGskAuth()) return { error: tm('errGskCli') }
+      // The user's own provider comes first: they configured it, it bills to
+      // their account, and the bytes stay on this machine. Genspark hosts the
+      // result and hands back a URL instead, and serves the providers that
+      // have no image endpoint of their own.
+      const provider = aiSettingsStore.forRenderer().provider
+      if (providerGeneratesImages(provider)) {
+        const result = await generateProviderImage(
+          provider,
+          aiSettingsStore.configFor(provider, '', resolveAiApiKey(provider)),
+          aiSettingsStore.imageModelFor(provider),
+          {
+            prompt: String(op.prompt ?? ''),
+            size: op.imageSize ? String(op.imageSize) : undefined,
+          },
+        )
+        if (!result.ok || !result.base64) return { error: result.error ?? 'generation failed' }
+        try {
+          return { url: writeGeneratedImage(result.base64, result.mime ?? 'image/png') }
+        } catch (err) {
+          return { error: err instanceof Error ? err.message : String(err) }
+        }
+      }
+      if (!hasGskAuth()) return { error: tm('errNoImageProvider') }
       try {
         const r = await gskGenerateImage({
           prompt: String(op.prompt),
@@ -223,16 +336,10 @@ export function registerSlidesOnlyAiIpc(): void {
       const slide = session.opened.deck.slides[op.slideIndex]
       if (!slide) return null
       try {
-        // the URL originates from AI tool calls (prompt-injectable via image
-        // search results), so refuse non-http schemes and private/link-local
-        // targets; redirects are followed manually so every hop is validated
-        const resp = await fetchWithSsrfGuard(String(op.url), {
-          headers: { 'User-Agent': 'Mozilla/5.0' },
-        })
-        if (!resp || !resp.ok) return null
-        const buf = Buffer.from(await resp.arrayBuffer())
-        const ct = resp.headers.get('content-type') ?? ''
-        const ext = ct.includes('png') ? 'png' : ct.includes('gif') ? 'gif' : 'jpg'
+        const image = await readImageForInsert(String(op.url))
+        if (!image) return null
+        const buf = image.bytes
+        const ext = image.ext
         const baseWidthPx = session.opened.deck.size.cx / EMU_PER_PX_96
         const scale = op.fitWidthPx / baseWidthPx
         const toEmu = (px: number) => Math.round((px / scale) * EMU_PER_PX_96)

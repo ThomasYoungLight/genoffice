@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
   AiChatRequest,
+  AiProviderProbeRequest,
   AiSettings,
   AiStreamChunk,
   AiStreamRequest,
@@ -58,6 +59,10 @@ const api: DesktopApi = {
     ipcRenderer.invoke('docs:save-merged-pdf', defaultName, base64Parts, outPath),
   getAiSettings: () => ipcRenderer.invoke('ai:get-settings'),
   setAiSettings: (settings: AiSettings) => ipcRenderer.invoke('ai:set-settings', settings),
+  aiTestProvider: (request: AiProviderProbeRequest) =>
+    ipcRenderer.invoke('ai:test-provider', request),
+  aiListModels: (request: AiProviderProbeRequest) => ipcRenderer.invoke('ai:list-models', request),
+  aiCliStatus: (provider: string) => ipcRenderer.invoke('ai:cli-status', provider),
   aiChat: (request: AiChatRequest) => ipcRenderer.invoke('ai:chat', request),
   aiStream: (request: AiStreamRequest) => ipcRenderer.invoke('ai:stream', request),
   aiStreamCancel: (requestId: string) => ipcRenderer.invoke('ai:stream-cancel', requestId),
@@ -68,6 +73,8 @@ const api: DesktopApi = {
   imageSearch: (query: string, maxResults?: number) =>
     ipcRenderer.invoke('ai:image-search', query, maxResults),
   fetchImage: (url: string) => ipcRenderer.invoke('ai:fetch-image', url),
+  generateImage: (request: { prompt: string; size?: string; transparent?: boolean }) =>
+    ipcRenderer.invoke('ai:generate-image-bytes', request),
   pickAttachments: () => ipcRenderer.invoke('files:pick'),
   addAttachmentPaths: (paths: string[]) => ipcRenderer.invoke('files:add', paths),
   addPastedImage: (data: ArrayBuffer, ext: string) =>

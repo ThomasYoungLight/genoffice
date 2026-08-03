@@ -16,7 +16,8 @@ import { createElectronTransport } from './transport'
 import { renderSlidesToPngBase64 } from '../export-render'
 import { isQcEnabled, mergeQcPages, qcSlidePage, QC_MAX_PAGES } from './slide-qc'
 import { useI18n, t as tGlobal, aiLangDirective, type TFunc } from '../i18n/locale'
-import { Markdown } from '@genoffice/ui'
+import { AiModelPicker, AiSettingsButton, Markdown, type AiSettingsHost } from '@genoffice/ui'
+import { providerGeneratesImages } from '@genoffice/ai-provider'
 import { GensparkMark } from '../components/icons'
 import sendEnterOn from '../assets/send-enter-on.png'
 import sendEnterOff from '../assets/send-enter-off.png'
@@ -112,8 +113,6 @@ interface ChatEntry {
   streaming?: boolean
   /** the run failed and this user message was rolled back out of the model context (#92) */
   undelivered?: boolean
-  /** the run failed because Genspark is signed out — render an inline sign-in button (#87) */
-  loginRequired?: boolean
   tools?: ToolActivity[]
   /** Generation progress card (only one per turn, replaced in real time) */
   deckProgress?: DeckProgressSnapshot
@@ -137,6 +136,8 @@ interface AiPanelProps {
   applyDeck: (slides: RenderSlide[], goTo?: number) => void
   fitWidthPx: number
   settings: AiSettings
+  /** the user changed provider/model/key in the settings dialog */
+  onSettingsChange: (settings: AiSettings) => void
   /** Preset instruction pushed from the ribbon/start screen; sent immediately when autoRun. When displayText exists the chat bubble shows only it while the full text still goes to the model.
       attachments are local files added in the start-screen input, taking effect with the first message.
       slideShot attaches a rendering of the current slide so the model sees what it's editing (AI Beautify) */
@@ -216,6 +217,17 @@ function loadPanelWidth(): number {
   return Number.isFinite(saved) && saved > 0 ? clampPanelWidth(saved) : PANEL_WIDTH_DEFAULT
 }
 
+/** window.slidesApi, adapted to the shape the shared provider dialog expects */
+const AI_SETTINGS_HOST: AiSettingsHost = {
+  getAiSettings: () => window.slidesApi.getAiSettings(),
+  setAiSettings: (settings) => window.slidesApi.setAiSettings(settings),
+  gskStatus: () => window.slidesApi.aiGskStatus(true),
+  gskLogin: () => void window.slidesApi.aiGskLogin(),
+  aiTestProvider: (request) => window.slidesApi.aiTestProvider(request),
+  aiListModels: (request) => window.slidesApi.aiListModels(request),
+  aiCliStatus: (provider) => window.slidesApi.aiCliStatus(provider),
+}
+
 export function AiPanel({
   slides,
   current,
@@ -226,13 +238,14 @@ export function AiPanel({
   applyDeck,
   fitWidthPx,
   settings,
+  onSettingsChange,
   preset,
   onCollapse,
   onPathChange,
   onDeckProgress,
   currentFilePath,
 }: AiPanelProps) {
-  const { t } = useI18n()
+  const { lang, t } = useI18n()
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [chat, setChat] = useState<ChatEntry[]>([])
@@ -288,6 +301,22 @@ export function AiPanel({
   onDeckProgressRef.current = onDeckProgress
   const settingsRef = useRef(settings)
   settingsRef.current = settings
+  /**
+   * Whether the Genspark account is available. Used only to decide whether to
+   * offer its image-generation / media-analysis tools — never to prompt for a
+   * sign-in, and never a precondition for the AI panel itself.
+   */
+  const gensparkAvailableRef = useRef(false)
+  useEffect(() => {
+    void window.slidesApi
+      .aiGskStatus()
+      .then((status) => {
+        gensparkAvailableRef.current = status.loggedIn
+      })
+      .catch(() => {
+        gensparkAvailableRef.current = false
+      })
+  }, [])
   const imagesRef = useRef(images)
   imagesRef.current = images
   const attachmentsRef = useRef(attachments)
@@ -915,7 +944,11 @@ export function AiPanel({
       transport: createElectronTransport(() => settingsRef.current),
       systemSuffix: aiLangDirective,
       skill: composeSkills('slides+files', '', [
-        createSlidesSkill(access),
+        createSlidesSkill(
+          access,
+          () => gensparkAvailableRef.current,
+          () => providerGeneratesImages(settingsRef.current.provider),
+        ),
         createFilesSkill(
           () => attachmentsRef.current,
           (path) => readAttachmentPathsRef.current.add(path),
@@ -1012,22 +1045,6 @@ export function AiPanel({
             }
             return next
           })
-          // Signed-out failures get an inline sign-in button (#87); detected via
-          // gsk status rather than matching the localized error text
-          void window.slidesApi
-            .aiGskStatus()
-            .then((status) => {
-              if (status.loggedIn) return
-              setChat((prev) => {
-                const next = [...prev]
-                const last = next.at(-1)
-                if (last?.role === 'assistant' && last.error) {
-                  next[next.length - 1] = { ...last, loginRequired: true }
-                }
-                return next
-              })
-            })
-            .catch(() => {})
           void finishHistoryBatch().finally(() => setBusy(false))
         },
       },
@@ -1386,6 +1403,13 @@ export function AiPanel({
           {t('aiPanelTitle')}
         </span>
         <div className="ai-panel-header-actions">
+          <AiSettingsButton
+            className="ai-header-btn"
+            iconSize={15}
+            lang={lang}
+            host={AI_SETTINGS_HOST}
+            onSaved={onSettingsChange}
+          />
           {chat.length > 0 && (
             <button className="ai-header-btn" onClick={newChat} title={t('aiNewChat')}>
               <IconNewChat size={15} />
@@ -1480,11 +1504,6 @@ export function AiPanel({
               {entry.tools && entry.tools.length > 0 && <ToolChipList tools={entry.tools} />}
               {entry.error && (
                 <div className="ai-msg-error">{t('aiMsgError', { error: entry.error })}</div>
-              )}
-              {entry.loginRequired && (
-                <button className="ai-login-btn" onClick={() => void window.slidesApi.aiGskLogin()}>
-                  {t('aiGskLoginBtn')}
-                </button>
               )}
               {entry.deckProgress && <DeckProgressCard progress={entry.deckProgress} />}
               {showToolbar && (
@@ -1654,6 +1673,12 @@ export function AiPanel({
               >
                 <img src={attachIcon} alt="" aria-hidden />
               </button>
+              <AiModelPicker
+                settings={settings}
+                lang={lang}
+                host={AI_SETTINGS_HOST}
+                onChange={onSettingsChange}
+              />
               {busy ? (
                 <button
                   className="ai-send-btn ai-stop-btn"

@@ -20,7 +20,54 @@ All application windows run with the full Electron renderer lockdown:
   enforces a protocol allowlist (http/https; pdf link annotations additionally
   allow mailto). `file:`, `javascript:`, and custom schemes are always rejected.
 - No API keys are hardcoded. AI requests are proxied through the signed-in
-  account by default; user-supplied keys stay in the OS-level settings store.
+  Genspark account by default; a user-supplied model API key is stored in
+  `userData/ai-settings.json`, encrypted through Electron `safeStorage` (the
+  macOS Keychain / Windows DPAPI) wherever the OS offers it. On a system with
+  no keyring the value is written readable and marked as such in the file.
+- A model API key never enters a renderer. `ai:get-settings` blanks every key
+  and reports only whether one is stored; the main process fills the real key
+  in when it issues the request. Renderers host document content, which is
+  prompt-injectable, so they are kept out of the key's blast radius.
+- A renderer never chooses the endpoint a stored key is sent to. It selects the
+  provider and model; the base URL always comes from the settings file
+  (`AiSettingsStore.configFor`). The one exception is a key typed into the
+  settings dialog and not yet saved, which is probed against the endpoint typed
+  alongside it — there nothing stored is at risk. Without that rule, pointing
+  the "custom" provider at an attacker-controlled base URL would post the saved
+  key to it.
+
+Generated images follow the same custody rule: the prompt goes to the provider,
+the bytes come back to the main process, and they are written to a temp file
+behind an opaque marker that only the process which issued it can redeem. An
+insert asked for anything else still goes through the SSRF-guarded download —
+a model-supplied `file:` or private-network URL is refused as before.
+
+## Local Agent CLI Backends
+
+Selecting Claude Code or Codex as the backend makes the main process spawn that
+CLI. Two deliberate constraints:
+
+- **Their own tools are off.** Claude Code runs with `--tools ""` and Codex with
+  `--sandbox read-only`, so neither can touch the filesystem or run shell
+  commands on the user's behalf. They are used purely as text generators; the
+  only edits that happen are the app's own tools, applied through the same
+  command pipeline as a manual edit.
+- **They run outside the project.** The subprocess starts in the home directory
+  rather than the app's working directory, so it does not silently pick up a
+  `CLAUDE.md` / `AGENTS.md` from wherever the app happens to be launched.
+- **Model discovery is a read-only query.** Refreshing the model list starts the
+  CLI in its machine-protocol mode (Claude Code's control channel, Codex's
+  app-server) and asks for the catalogue its own picker shows. No turn is
+  started, no prompt or document content is sent, and the subprocess is killed
+  as soon as the answer arrives.
+
+The conversation is passed on stdin, never as argv, and the CLI's own login is
+the credential — this app neither reads nor stores one for these backends.
+
+Note that document content is prompt-injectable and is sent to the CLI like any
+other backend. The tool-call contract is carried in the prompt (the CLIs accept
+no caller-supplied tool definitions), so a call is only executed when its name
+matches a tool the app offered for that turn; anything else is discarded.
 
 ## Threat Model: AI-Generated Layout Scripts (slides)
 
