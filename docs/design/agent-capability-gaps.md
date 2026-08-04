@@ -247,9 +247,9 @@ fragile the markup is, not by how recently it shipped:
 | ~~2~~    | ~~Sheets icon-set / aboveAverage / timePeriod CF~~ | `cea0bd3`            | **Done.** Icons and aboveAverage correct; timePeriod could not be saved at all, now implemented |
 | ~~3~~    | ~~Docs formulas in Word~~                          | `9b4ec40`            | **Done.** Formulas correct; turned up an unrelated Compatibility Mode issue                     |
 | ~~4~~    | ~~The five added chart types~~                     | `e54265a`            | **Done.** All five correct; one cosmetic axis issue left open                                   |
-| 5        | pptx sections and comments                         | `cea0bd3`            | Separate parts with their own relationships                                                     |
-| 6        | Docs comments, text boxes, shapes                  | `e113810`            | Floating anchors and a comment part                                                             |
-| 7        | Header/footer, both formats                        | `9e0dd02`, `31f9b34` | Placeholder fields repeated across every page/slide                                             |
+| ~~5~~    | ~~pptx sections and comments~~                     | `cea0bd3`            | **Done.** Sections correct; comment badges all stacked and timestamps were 8 hours out          |
+| ~~6~~    | ~~Docs comments, text boxes, shapes~~              | `e113810`            | **Done.** All three correct; `w:date` was true UTC where Word wants local digits                |
+| ~~7~~    | ~~Header/footer, both formats~~                    | `9e0dd02`, `31f9b34` | **Done.** Output right in both; a partial update silently deleted the untouched fields          |
 | 8        | Mermaid flowcharts as native shapes                | `76b7678`            | Plain preset geometry; lowest risk of the set                                                   |
 
 ### Step 0 results
