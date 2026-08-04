@@ -227,34 +227,65 @@ Two lessons worth keeping:
 
 ## Plan
 
-Sequenced by value per unit of risk. Items are independent; each is shippable on
-its own.
+Revised after the first Office check found a defect our whole test suite had
+passed. That changes the ordering: verification is no longer a footnote at the
+end, it is the cheapest bug-finding tool available and it goes first.
+
+### Step 0 — Verify what has already shipped (highest value, days not weeks)
+
+Eleven commits of format-writing work landed before anyone opened the output in
+Office. One of them had a bug. The rest are unexamined, and the cost of looking
+is minutes each.
+
+Open a file exercising each feature in the real application, check the exported
+PDF as well as the canvas, and fix what turns up. Ordered by how novel or
+fragile the markup is, not by how recently it shipped:
+
+| Priority | Feature                                        | Commit               | Why it is first                                                                                                                                            |
+| -------- | ---------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1        | Slide transitions and animations               | `4575901`            | Timing XML is the easiest thing in pptx to get subtly wrong                                                                                                |
+| 2        | Sheets icon-set / aboveAverage / timePeriod CF | `cea0bd3`            | Icon order is inverted between Univer and the file, decided by a `reverse` flag — the wrong icons on the right values would look plausible in our own grid |
+| 3        | Docs formulas in Word                          | `9b4ec40`            | Same converter as the slide bug — directly implicated                                                                                                      |
+| 4        | The five added chart types                     | `e54265a`            | scatter, radar and comboBarLine build chart XML we had not before                                                                                          |
+| 5        | pptx sections and comments                     | `cea0bd3`            | Separate parts with their own relationships                                                                                                                |
+| 6        | Docs comments, text boxes, shapes              | `e113810`            | Floating anchors and a comment part                                                                                                                        |
+| 7        | Header/footer, both formats                    | `9e0dd02`, `31f9b34` | Placeholder fields repeated across every page/slide                                                                                                        |
+| 8        | Mermaid flowcharts as native shapes            | `76b7678`            | Plain preset geometry; lowest risk of the set                                                                                                              |
+
+Row 2 was first written down on a guess — that icon sets need an `x14`
+extension block. They do not, here: `xlsx-cf.ts` writes plain OOXML and refuses
+outright the mixed sets and custom orderings that would need the extended
+format. The correction is the point, and the habit it stands for: check the code
+before writing down a risk, and check the application before believing the code.
+
+**Done when:** each row has been opened in its application, the PDF checked, and
+either fixed or recorded as verified. Expect this to find more than one bug.
 
 ### Step 1 — Sheets raw (small)
 
-Wire `raw-parts` / `raw-get` / `raw-set` onto the existing sidecar archive
+Wire `raw-parts` / `raw-get` / `raw-set` onto the sidecar's existing archive
 commands, port the validation chain from `pptx-engine/src/raw.ts`, add the
-sidecar-reader round-trip gate and the Univer re-read. Ships the escape hatch to
-a second format for much less than the first cost.
+sidecar-reader round-trip gate and the Univer re-read.
 
-**Done when:** the four gates are tested, a raw edit survives save/reopen, and
-the grid does not show stale values afterwards.
+**Done when:** the four gates are tested, a raw edit survives save/reopen, the
+grid does not show stale values, and the result opens in Excel.
 
 ### Step 2 — Sheets rich text (medium)
 
 `set_cell_rich`, shared-string runs, Univer mapping. The one item here a user
 would notice unprompted.
 
-**Done when:** a rich cell round-trips through save/reopen with its runs, and
-does not collide with the plain string of the same text.
+**Done when:** a rich cell round-trips with its runs, does not collide with the
+plain string of the same text, and Excel shows the runs.
 
 ### Step 3 — Docs raw (medium)
 
 `SaveOptions.partOverrides` first, then the tools, with document.xml writes
 refused and the refusal naming the tool that owns the change.
 
-**Done when:** a styles.xml edit survives save/reopen, a document.xml write is
-refused with a useful message, and a corrupting edit rolls back.
+**Done when:** a styles.xml edit survives save/reopen and opens in Word, a
+document.xml write is refused with a useful message, and a corrupting edit rolls
+back.
 
 ### Step 4 — Sheets page breaks, docs caption/index (small)
 
@@ -265,9 +296,8 @@ next rather than scheduling them.
 
 Slicers, and the whole of section 4. Record the decisions; revisit on request.
 
-### Cross-cutting, every format feature
+### Standing rule
 
-Open the result in the real Office application and check the exported PDF, per
-Verification above. Slide equations have been through this (`849281c`, fixed in
-the commit that added this section). Anything below that writes markup Office
-has to accept gets the same treatment before it is called done.
+No format-writing feature is done until it has been opened in the application
+that has to read it. This is a build step, not a release gate — the equations
+bug would have been a five-minute fix on the day and instead shipped.
