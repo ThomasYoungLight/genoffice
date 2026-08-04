@@ -36,6 +36,7 @@ import {
   addSlideComment,
   addSmartArt,
   applyHeaderFooter,
+  mergeHeaderFooter,
   applyThemeToArchive,
   remapDeckColors,
   addTable,
@@ -3009,10 +3010,13 @@ export function registerSlidesIpc(): void {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     pushHistory(session)
+    // The dialog always sends all four fields; the agent sends only what it was
+    // asked to change, and applyHeaderFooter reads an omitted field as a
+    // deletion. mergeHeaderFooter fills the gaps from the current state.
+    const first = session.opened.deck.slides[0]
+    const current = first ? readHeaderFooter(first) : { footer: null, slideNum: false, date: null }
     const changed = applyHeaderFooter(session.opened, {
-      footer: op.footer ?? null,
-      slideNum: !!op.slideNum,
-      date: op.date ?? null,
+      ...mergeHeaderFooter(op, current),
       ...(op.dateAuto ? { dateAuto: true } : {}),
     })
     if (!changed) {

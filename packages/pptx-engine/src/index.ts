@@ -219,7 +219,12 @@ export {
   type NewMediaOptions,
   type NewModel3dOptions,
 } from './media-insert'
-export { applyHeaderFooter, readHeaderFooter, type HeaderFooterOptions } from './headerfooter'
+export {
+  applyHeaderFooter,
+  mergeHeaderFooter,
+  readHeaderFooter,
+  type HeaderFooterOptions,
+} from './headerfooter'
 export {
   getSections,
   setSections,

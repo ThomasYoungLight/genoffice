@@ -147,6 +147,26 @@ export function applyHeaderFooter(
   return changed
 }
 
+/**
+ * Fill in the fields a caller left out from the deck's current state.
+ *
+ * applyHeaderFooter clears the whole footer family before writing the enabled
+ * parts back, so to it an omitted field is a deletion, not a no-op. That suits
+ * the dialog, which always sends all three, and not the agent, which sends only
+ * what it was asked to change — "add slide numbers" must not drop the footer.
+ * `null` still means remove; only `undefined` inherits.
+ */
+export function mergeHeaderFooter(
+  op: { footer?: string | null; slideNum?: boolean; date?: string | null },
+  current: { footer: string | null; slideNum: boolean; date: string | null },
+): { footer: string | null; slideNum: boolean; date: string | null } {
+  return {
+    footer: op.footer !== undefined ? op.footer : current.footer,
+    slideNum: op.slideNum !== undefined ? op.slideNum : current.slideNum,
+    date: op.date !== undefined ? op.date : current.date,
+  }
+}
+
 /** Read a slide's current footer state (for dialog echo-back). */
 export function readHeaderFooter(slide: Slide): {
   footer: string | null

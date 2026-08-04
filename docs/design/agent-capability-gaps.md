@@ -414,6 +414,37 @@ which writes no settings part — not the product path. Rebasing the fixture on
 `buildBlankDocx` removed the confound. Check what the harness builds before
 believing what the harness shows.
 
+**Row 7 — header/footer in both formats: the output is right in both, one
+partial-update bug on the slides side.**
+
+Both formats reach their application correctly. PowerPoint places the date left,
+the footer centred and the slide number right on every slide, with
+`<a:fld type="slidenum">` resolving per slide — and, the stronger check,
+**PowerPoint's own Header and Footer dialog reads all three back**: "Date and
+time / Fixed / 4 August 2026", "Slide number" ticked, "Footer" with our text. A
+round trip through Office's own UI, not just its renderer. Word puts the header
+at the top and the footer at the bottom with the `PAGE` field resolved
+("Confidential 1"), verified in an exported PDF.
+
+The bug is on the way in, not on the way out. `applyHeaderFooter` clears the
+whole `dt`/`ftr`/`sldNum` family before writing the enabled parts back, so an
+omitted field reads as a deletion. The dialog always sends all three and never
+noticed. The agent sends only the field it was asked to change, so **"add slide
+numbers" silently deleted the footer** — applying `{date}` to a deck with a
+footer and slide numbers left only the date.
+
+`mergeHeaderFooter` now fills the gaps from the current state before the engine
+sees them; `null` still means remove, only an absent field inherits.
+
+The instructive part is why a test suite with a test for exactly this missed it.
+`arrangement-tools.test.ts` asserts the tool omits untouched fields —
+`expect('date' in op).toBe(false)` — and then stops at the IPC mock. It pinned
+the promise the skill makes and never checked the other side keeps it. A mock
+boundary is where an invariant goes to die: both halves were self-consistent and
+the contract between them was wrong. The new tests live in the engine, where the
+clearing behaviour actually is, and one of them asserts that behaviour directly
+so the reason `mergeHeaderFooter` exists cannot quietly stop being true.
+
 A methodology note to go with row 1's: **rebuild before you conclude.** A "no
 fill" screenshot sent me chasing the dxf markup, and a controlled pair differing
 only in that markup rendered identically. The first file was simply stale.
