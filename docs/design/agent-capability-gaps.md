@@ -245,7 +245,7 @@ fragile the markup is, not by how recently it shipped:
 | -------- | -------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------- |
 | ~~1~~    | ~~Slide transitions and animations~~               | `4575901`            | **Done.** Animations pass; morph was broken by a wrong namespace URI, now fixed                 |
 | ~~2~~    | ~~Sheets icon-set / aboveAverage / timePeriod CF~~ | `cea0bd3`            | **Done.** Icons and aboveAverage correct; timePeriod could not be saved at all, now implemented |
-| 3        | Docs formulas in Word                              | `9b4ec40`            | Same converter as the slide bug — directly implicated                                           |
+| ~~3~~    | ~~Docs formulas in Word~~                          | `9b4ec40`            | **Done.** Formulas correct; turned up an unrelated Compatibility Mode issue                     |
 | 4        | The five added chart types                         | `e54265a`            | scatter, radar and comboBarLine build chart XML we had not before                               |
 | 5        | pptx sections and comments                         | `cea0bd3`            | Separate parts with their own relationships                                                     |
 | 6        | Docs comments, text boxes, shapes                  | `e113810`            | Floating anchors and a comment part                                                             |
@@ -296,6 +296,24 @@ the two halves against each other.
 Now implemented for all ten periods the DSL offers, each with the formula Excel
 evaluates — the `timePeriod` attribute alone highlights nothing. A test walks
 the DSL's own list so the two cannot drift apart again.
+
+**Row 3 — docs formulas in Word: no bug in the formulas.**
+
+Word typesets all five block equations and all three inline ones, and the
+summand sits inside the operator, so the fix made for slides in `9b4ec40`
+reaches docs through the shared converter as intended. Nothing to change.
+
+It did turn up something unrelated: **Word opens our documents in Compatibility
+Mode.** `buildBlankDocx` writes `document.xml`, `styles.xml` and
+`numbering.xml`, and no `word/settings.xml`; without a `compatibilityMode`
+compat setting Word assumes an older format, disables newer features and says so
+in the title bar. It affects new documents only — a document opened from an
+existing file keeps its original settings part through the patch-based save.
+
+The fix is a `settings.xml` declaring compatibility mode 15, plus its
+content-type override and relationship. Not done here: it is unrelated to the
+row and wants its own change and its own Word check. Worth doing early, since it
+is visible on every document the product creates.
 
 A methodology note to go with row 1's: **rebuild before you conclude.** A "no
 fill" screenshot sent me chasing the dxf markup, and a controlled pair differing
