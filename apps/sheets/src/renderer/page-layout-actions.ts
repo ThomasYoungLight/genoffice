@@ -15,6 +15,7 @@ import {
 import type { HeaderFooterResult } from './HeaderFooterDialog'
 import { t } from './i18n/locale'
 import { buildSheetPrintPayload, type PrintWorksheet } from './print-html'
+import { capturePrintVisuals } from './print-visuals'
 import type { LazyWorkbookState, UniverRuntime } from './univer-state'
 
 const PAPER_NAMES: Record<string, string> = {
@@ -212,6 +213,9 @@ export async function handleExportPdf(ctx: PageLayoutContext): Promise<void> {
       pageSetup,
       `${baseName}.pdf`,
       worksheet.getSheetName(),
+      // Read off the live grid: only the rendered visuals have their image
+      // bytes and hydrated chart series resolved.
+      capturePrintVisuals(),
     )
     ctx.setMessage(t('appPdfRendering'))
     const result = await window.desktopApi.exportPdf(payload)

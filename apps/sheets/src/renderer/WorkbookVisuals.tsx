@@ -108,6 +108,40 @@ function seriesColor(series: SeriesLike | undefined, index: number): string {
   return series?.color ?? chartColors[index % chartColors.length] ?? '#4472c4'
 }
 
+/// Tags a rendered visual with the anchor that places it, so the print/PDF
+/// layout can find it and put it back over the right cell (capturePrintVisuals
+/// reads these). `display: contents` leaves no box behind, so the visual's own
+/// 100%/100% sizing still resolves against Univer's float container.
+const PRINT_MARKER_STYLE = { display: 'contents' } as const
+
+function PrintMarker({
+  anchor,
+  children,
+}: {
+  readonly anchor: string
+  readonly children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <div style={PRINT_MARKER_STYLE} data-print-anchor={anchor}>
+      {children}
+    </div>
+  )
+}
+
+/// The eight numbers of a twoCellAnchor, in the order print-visuals parses.
+function printAnchor(anchor: WorkbookVisualObject['anchor']): string {
+  return [
+    anchor.fromRow,
+    anchor.fromColumn,
+    anchor.fromRowOffset,
+    anchor.fromColumnOffset,
+    anchor.toRow,
+    anchor.toColumn,
+    anchor.toRowOffset,
+    anchor.toColumnOffset,
+  ].join(',')
+}
+
 export function installWorkbookVisuals(
   runtime: UniverRuntime,
   file: VisualHost,
@@ -124,19 +158,26 @@ export function installWorkbookVisuals(
     const componentKey = `xlsx-${file.sessionId}-${visual.id}`
     const editable =
       isEditableShape(visual) || isEditableFileVisual(visual) || isEditableChart(visual)
+    const anchorAttr = printAnchor(visual.anchor)
     const component =
       shapeEditing && editable
         ? () => (
-            <EditableShapeVisual
-              file={file}
-              visual={visual}
-              worksheet={worksheet}
-              allowText={isEditableShape(visual)}
-              chartEditing={chartEditing}
-              onEdit={shapeEditing.onEdit}
-            />
+            <PrintMarker anchor={anchorAttr}>
+              <EditableShapeVisual
+                file={file}
+                visual={visual}
+                worksheet={worksheet}
+                allowText={isEditableShape(visual)}
+                chartEditing={chartEditing}
+                onEdit={shapeEditing.onEdit}
+              />
+            </PrintMarker>
           )
-        : () => <WorkbookVisual file={file} visual={visual} chartEditing={chartEditing} />
+        : () => (
+            <PrintMarker anchor={anchorAttr}>
+              <WorkbookVisual file={file} visual={visual} chartEditing={chartEditing} />
+            </PrintMarker>
+          )
     disposables.push(runtime.univerAPI.registerComponent(componentKey, component))
     // Lazy grids are sized to the data, but session-added visuals anchor
     // beyond it (default: two columns right of the data) — grow the grid so
@@ -250,12 +291,16 @@ export function installSparklines(
       const componentKey = `sparkline-${sheetId}-${groupIndex}-${cellIndex}`
       disposables.push(
         runtime.univerAPI.registerComponent(componentKey, () => (
-          <Sparkline
-            values={values}
-            type={group.type}
-            color={group.color}
-            negativeColor={group.negativeColor}
-          />
+          // A sparkline is simply "this cell": a degenerate anchor, which the
+          // print layout resolves to the cell's own box.
+          <PrintMarker anchor={`${host.row},${host.column},0,0,${host.row},${host.column},0,0`}>
+            <Sparkline
+              values={values}
+              type={group.type}
+              color={group.color}
+              negativeColor={group.negativeColor}
+            />
+          </PrintMarker>
         )),
       )
       const range = worksheet.getRange(host.row, host.column, 1, 1)

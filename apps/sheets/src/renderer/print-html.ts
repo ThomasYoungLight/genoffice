@@ -13,6 +13,33 @@ export class PrintError extends Error {}
 
 const MAX_PRINT_CELLS = 50_000
 
+/// 914400 EMU per inch, 72 points per inch.
+const EMU_PER_POINT = 12700
+
+/// A floating visual — chart, image, shape or sparkline — as static markup
+/// plus the xlsx twoCellAnchor that places it: two (cell, EMU offset inside
+/// that cell) markers, exactly as the drawing part stores them. Cell-relative
+/// rather than screen pixels because the printed table is a re-layout at its
+/// own scale; screen coordinates would drift from it.
+export interface PrintVisual {
+  readonly fromRow: number
+  readonly fromColumn: number
+  readonly fromRowOffset: number
+  readonly fromColumnOffset: number
+  readonly toRow: number
+  readonly toColumn: number
+  readonly toRowOffset: number
+  readonly toColumnOffset: number
+  /// Sanitized markup — see capturePrintVisuals, which is what produces it.
+  readonly html: string
+}
+
+export interface PrintVisualLayer {
+  readonly visuals: readonly PrintVisual[]
+  /// The stylesheet rules those fragments need, lifted from the live page.
+  readonly css: string
+}
+
 /// The slice of the Univer facade the layout needs (structural, so the
 /// caller passes the FWorksheet through a cast).
 export interface PrintWorksheet {
@@ -88,8 +115,14 @@ export function buildSheetPrintPayload(
   pageSetup: PageSetupJournalState,
   fileName: string,
   sheetName: string,
+  visualLayer?: PrintVisualLayer,
 ): WorkbookExportPdfRequest {
-  const area = pageSetup.printArea ? parseArea(pageSetup.printArea) : usedArea(worksheet)
+  // An explicit print area clips, exactly as Excel's does. Without one the
+  // used range is what prints — and Excel's used range covers the drawings,
+  // not just the cells with values in them.
+  const area = pageSetup.printArea
+    ? parseArea(pageSetup.printArea)
+    : coverVisuals(usedArea(worksheet), visualLayer?.visuals ?? [])
   const rows = area.endRow - area.startRow + 1
   const columns = area.endColumn - area.startColumn + 1
   if (rows < 1 || columns < 1) throw new PrintError(t('appPrintNothing'))
@@ -110,6 +143,7 @@ export function buildSheetPrintPayload(
     (_, offset) => worksheet.getColumnWidth(area.startColumn + offset) * 0.75,
   )
   const rowHeaderPt = headings ? 24 : 0
+  const overlays = placeVisuals(worksheet, visualLayer?.visuals ?? [], area, merges)
 
   const bodyRow = (row: number): string => {
     const cells: string[] = []
@@ -130,8 +164,14 @@ export function buildSheetPrintPayload(
         : cellDisplay(worksheet, row, column)
       const rawValue = inArea ? raw[row - area.startRow]?.[column - area.startColumn] : undefined
       const style = worksheet.getRange(row, column).getCellStyleData()
+      // A visual hangs off its marker cell rather than off the table, so
+      // Chromium's pagination carries it to whichever page that cell lands
+      // on — and the repeated header rows cannot push it out of register.
+      const overlay = overlays.get(key)
+      const positioning = overlay === undefined ? '' : ';position:relative;overflow:visible'
       cells.push(
-        `<td${span} style="${cellCss(style, rawValue, gridlines)}">${escapeHtml(text)}</td>`,
+        `<td${span} style="${cellCss(style, rawValue, gridlines)}${positioning}">` +
+          `${escapeHtml(text)}${overlay ?? ''}</td>`,
       )
     }
     const heightPt = Math.max(worksheet.getRowHeight(row) * 0.75, 10)
@@ -185,6 +225,9 @@ td.hf { padding: 6pt 0 0; }
 .hf span { flex: 1; white-space: pre; }
 .hf span:nth-child(2) { text-align: center; }
 .hf span:last-child { text-align: right; }
+.pv { position: absolute; overflow: hidden; }
+.pv * { box-sizing: border-box; }
+${overlays.size === 0 ? '' : sanitizeCss(visualLayer?.css ?? '')}
 </style></head><body><table>${colgroup}<thead>${headParts.join('')}</thead>` +
     `<tbody>${bodyParts.join('')}</tbody>` +
     `${footerRow === '' ? '' : `<tfoot>${footerRow}</tfoot>`}</table></body></html>`
@@ -302,6 +345,25 @@ function usedArea(worksheet: PrintWorksheet) {
   }
 }
 
+/// Grows an area to contain every visual's frame. A visual whose `to` marker
+/// sits exactly on a cell boundary (offset 0) does not reach into that cell,
+/// so it does not extend the range there.
+function coverVisuals(
+  area: { startRow: number; endRow: number; startColumn: number; endColumn: number },
+  visuals: readonly PrintVisual[],
+) {
+  let { endRow, endColumn } = area
+  for (const visual of visuals) {
+    if (visual.html === '') continue
+    endRow = Math.max(endRow, visual.toRowOffset > 0 ? visual.toRow : visual.toRow - 1)
+    endColumn = Math.max(
+      endColumn,
+      visual.toColumnOffset > 0 ? visual.toColumn : visual.toColumn - 1,
+    )
+  }
+  return { ...area, endRow, endColumn }
+}
+
 function parseArea(area: string) {
   const match = /^\$?([A-Za-z]{1,3})\$?(\d{1,7}):\$?([A-Za-z]{1,3})\$?(\d{1,7})$/.exec(area)
   if (!match) throw new PrintError(t('appPrintBadArea', { area }))
@@ -328,6 +390,8 @@ function mergeMaps(
 ) {
   const anchors = new Map<string, { rows: number; columns: number }>()
   const covered = new Set<string>()
+  /// Covered cell → the merge anchor that emitted the td standing in for it.
+  const coveredBy = new Map<string, string>()
   for (const merge of worksheet.getMergedRanges()) {
     const row = merge.getRow()
     const column = merge.getColumn()
@@ -337,11 +401,98 @@ function mergeMaps(
     anchors.set(`${row}:${column}`, { rows: merge.getHeight(), columns: merge.getWidth() })
     for (let r = row; r < row + merge.getHeight(); r += 1) {
       for (let c = column; c < column + merge.getWidth(); c += 1) {
-        if (r !== row || c !== column) covered.add(`${r}:${c}`)
+        if (r !== row || c !== column) {
+          covered.add(`${r}:${c}`)
+          coveredBy.set(`${r}:${c}`, `${row}:${column}`)
+        }
       }
     }
   }
-  return { anchors, covered }
+  return { anchors, covered, coveredBy }
+}
+
+/// Turns each visual's twoCellAnchor into an absolutely-positioned box hung
+/// off the td for its `from` cell, keyed by that cell. Visuals anchored
+/// outside the printed area are dropped, matching Excel: a print area prints
+/// what it covers.
+function placeVisuals(
+  worksheet: PrintWorksheet,
+  visuals: readonly PrintVisual[],
+  area: { startRow: number; endRow: number; startColumn: number; endColumn: number },
+  merges: ReturnType<typeof mergeMaps>,
+): Map<string, string> {
+  const placed = new Map<string, string>()
+  if (visuals.length === 0) return placed
+  const columnPt = (index: number): number => Math.max(worksheet.getColumnWidth(index), 1) * 0.75
+  const rowPt = (index: number): number => Math.max(worksheet.getRowHeight(index), 1) * 0.75
+  for (const visual of visuals) {
+    if (visual.html === '') continue
+    if (visual.fromRow < area.startRow || visual.fromRow > area.endRow) continue
+    if (visual.fromColumn < area.startColumn || visual.fromColumn > area.endColumn) continue
+    let left = visual.fromColumnOffset / EMU_PER_POINT
+    let top = visual.fromRowOffset / EMU_PER_POINT
+    let width = markerSpanPoints(
+      visual.fromColumn,
+      visual.fromColumnOffset,
+      visual.toColumn,
+      visual.toColumnOffset,
+      columnPt,
+    )
+    let height = markerSpanPoints(
+      visual.fromRow,
+      visual.fromRowOffset,
+      visual.toRow,
+      visual.toRowOffset,
+      rowPt,
+    )
+    // A degenerate anchor (oneCellAnchor, or a sparkline, which is simply
+    // "this cell") gets the cell itself — the same fallback the on-screen
+    // install uses, so print and screen agree about what is degenerate.
+    if (width < 1 || height < 1) {
+      left = 0
+      top = 0
+      width = columnPt(visual.fromColumn)
+      height = rowPt(visual.fromRow)
+    }
+    // The td for a covered cell is never emitted; hang the visual off the
+    // merge anchor's td instead, shifted by the distance between them.
+    let key = `${visual.fromRow}:${visual.fromColumn}`
+    const host = merges.coveredBy.get(key)
+    if (host !== undefined) {
+      const [hostRow = 0, hostColumn = 0] = host.split(':').map(Number)
+      for (let c = hostColumn; c < visual.fromColumn; c += 1) left += columnPt(c)
+      for (let r = hostRow; r < visual.fromRow; r += 1) top += rowPt(r)
+      key = host
+    }
+    const box =
+      `<div class="pv" style="left:${round(left)}pt;top:${round(top)}pt;` +
+      `width:${round(width)}pt;height:${round(height)}pt">${visual.html}</div>`
+    placed.set(key, (placed.get(key) ?? '') + box)
+  }
+  return placed
+}
+
+/// Distance in points between two anchor markers, each a cell index plus an
+/// EMU offset inside it.
+function markerSpanPoints(
+  fromIndex: number,
+  fromOffset: number,
+  toIndex: number,
+  toOffset: number,
+  sizePt: (index: number) => number,
+): number {
+  let cells = 0
+  for (let index = Math.min(fromIndex, toIndex); index < Math.max(fromIndex, toIndex); index += 1) {
+    cells += sizePt(index)
+  }
+  const span = (toOffset - fromOffset) / EMU_PER_POINT
+  return span + (fromIndex <= toIndex ? cells : -cells)
+}
+
+/// The captured rules are inlined into a <style> element, so a rule that
+/// closed it early would put the rest of the sheet into the document body.
+function sanitizeCss(css: string): string {
+  return css.replace(/<\/?(style|script)/gi, '')
 }
 
 function cellDisplay(worksheet: PrintWorksheet, row: number, column: number): string {
