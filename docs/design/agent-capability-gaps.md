@@ -241,16 +241,16 @@ Open a file exercising each feature in the real application, check the exported
 PDF as well as the canvas, and fix what turns up. Ordered by how novel or
 fragile the markup is, not by how recently it shipped:
 
-| Priority | Feature                                        | Commit               | Why it is first                                                                                                                                            |
-| -------- | ---------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ~~1~~    | ~~Slide transitions and animations~~           | `4575901`            | **Done.** Animations pass; morph was broken by a wrong namespace URI, now fixed                                                                            |
-| 2        | Sheets icon-set / aboveAverage / timePeriod CF | `cea0bd3`            | Icon order is inverted between Univer and the file, decided by a `reverse` flag — the wrong icons on the right values would look plausible in our own grid |
-| 3        | Docs formulas in Word                          | `9b4ec40`            | Same converter as the slide bug — directly implicated                                                                                                      |
-| 4        | The five added chart types                     | `e54265a`            | scatter, radar and comboBarLine build chart XML we had not before                                                                                          |
-| 5        | pptx sections and comments                     | `cea0bd3`            | Separate parts with their own relationships                                                                                                                |
-| 6        | Docs comments, text boxes, shapes              | `e113810`            | Floating anchors and a comment part                                                                                                                        |
-| 7        | Header/footer, both formats                    | `9e0dd02`, `31f9b34` | Placeholder fields repeated across every page/slide                                                                                                        |
-| 8        | Mermaid flowcharts as native shapes            | `76b7678`            | Plain preset geometry; lowest risk of the set                                                                                                              |
+| Priority | Feature                                            | Commit               | Why it is first                                                                                 |
+| -------- | -------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------- |
+| ~~1~~    | ~~Slide transitions and animations~~               | `4575901`            | **Done.** Animations pass; morph was broken by a wrong namespace URI, now fixed                 |
+| ~~2~~    | ~~Sheets icon-set / aboveAverage / timePeriod CF~~ | `cea0bd3`            | **Done.** Icons and aboveAverage correct; timePeriod could not be saved at all, now implemented |
+| 3        | Docs formulas in Word                              | `9b4ec40`            | Same converter as the slide bug — directly implicated                                           |
+| 4        | The five added chart types                         | `e54265a`            | scatter, radar and comboBarLine build chart XML we had not before                               |
+| 5        | pptx sections and comments                         | `cea0bd3`            | Separate parts with their own relationships                                                     |
+| 6        | Docs comments, text boxes, shapes                  | `e113810`            | Floating anchors and a comment part                                                             |
+| 7        | Header/footer, both formats                        | `9e0dd02`, `31f9b34` | Placeholder fields repeated across every page/slide                                             |
+| 8        | Mermaid flowcharts as native shapes                | `76b7678`            | Plain preset geometry; lowest risk of the set                                                   |
 
 ### Step 0 results
 
@@ -277,6 +277,29 @@ Two methodology notes for the remaining rows, both learned the hard way:
 - **Saving via AppleScript dropped the morph child element**, producing a
   reference sample that looked authoritative and was not. Use ⌘S. A good while
   went into diagnosing a file PowerPoint had quietly degraded on the way out.
+
+**Row 2 — conditional formats: one bug, fixed.**
+
+Passing in Excel: icon sets in natural order, icon sets inverted via
+`reverse="1"`, the worst-first `4Rating` set, and `aboveAverage` (highlighting
+exactly the values above the mean). The icon-order inversion this row was
+prioritised for turns out to be correct.
+
+Failing: `timePeriod` could not be written at all. `xlsx-cf.ts` threw
+"Date-occurring rules cannot be saved yet" — deliberately, with a test asserting
+it. The bug was not in the writer; it was that `cea0bd3` added `timePeriod` to
+the workbook DSL and to the Univer mapping anyway. The agent could create a rule
+that rendered in the grid and then made the whole workbook fail to save, because
+`applyCfRules` throws and nothing on the save path catches it. Nothing checked
+the two halves against each other.
+
+Now implemented for all ten periods the DSL offers, each with the formula Excel
+evaluates — the `timePeriod` attribute alone highlights nothing. A test walks
+the DSL's own list so the two cannot drift apart again.
+
+A methodology note to go with row 1's: **rebuild before you conclude.** A "no
+fill" screenshot sent me chasing the dxf markup, and a controlled pair differing
+only in that markup rendered identically. The first file was simply stale.
 
 Row 2 was first written down on a guess — that icon sets need an `x14`
 extension block. They do not, here: `xlsx-cf.ts` writes plain OOXML and refuses

@@ -152,6 +152,30 @@ function linkedMessage(block: string): string {
     : 'This range has extended conditional formatting (x14) that cannot be modified yet'
 }
 
+/**
+ * Date-occurring rules. Excel writes both a `timePeriod` attribute and the
+ * equivalent formula, and evaluates the formula — a rule with the attribute
+ * alone highlights nothing. These are the formulas Excel itself emits, with the
+ * range's top-left cell as the anchor.
+ */
+const TIME_PERIOD_FORMULAS: Record<string, (anchor: string) => string> = {
+  today: (a) => `FLOOR(${a},1)=TODAY()`,
+  yesterday: (a) => `FLOOR(${a},1)=TODAY()-1`,
+  tomorrow: (a) => `FLOOR(${a},1)=TODAY()+1`,
+  last7Days: (a) => `AND(TODAY()-FLOOR(${a},1)<=6,FLOOR(${a},1)<=TODAY())`,
+  thisWeek: (a) =>
+    `AND(TODAY()-ROUNDDOWN(${a},0)<=WEEKDAY(TODAY())-1,ROUNDDOWN(${a},0)-TODAY()<=7-WEEKDAY(TODAY()))`,
+  lastWeek: (a) =>
+    `AND(TODAY()-ROUNDDOWN(${a},0)>=(WEEKDAY(TODAY())),TODAY()-ROUNDDOWN(${a},0)<(WEEKDAY(TODAY())+7))`,
+  nextWeek: (a) =>
+    `AND(ROUNDDOWN(${a},0)-TODAY()>(7-WEEKDAY(TODAY())),ROUNDDOWN(${a},0)-TODAY()<(15-WEEKDAY(TODAY())))`,
+  thisMonth: (a) => `AND(MONTH(${a})=MONTH(TODAY()),YEAR(${a})=YEAR(TODAY()))`,
+  lastMonth: (a) =>
+    `AND(MONTH(${a})=MONTH(EDATE(TODAY(),0-1)),YEAR(${a})=YEAR(EDATE(TODAY(),0-1)))`,
+  nextMonth: (a) =>
+    `AND(MONTH(${a})=MONTH(EDATE(TODAY(),0+1)),YEAR(${a})=YEAR(EDATE(TODAY(),0+1)))`,
+}
+
 function serializeRule(wireRule: CfWireRule, priority: number, dxfs: DxfSink): string {
   if (wireRule.ranges.length === 0) {
     throw new CfEditError('A conditional-formatting rule has no ranges.')
@@ -303,8 +327,17 @@ function highlightRule(
         value.startsWith('=') ? value.slice(1) : value,
       ])
     }
-    case 'timePeriod':
-      throw new CfEditError('Date-occurring rules cannot be saved yet.')
+    case 'timePeriod': {
+      const period = String(operator ?? '')
+      const formula = TIME_PERIOD_FORMULAS[period]
+      if (formula === undefined) {
+        throw new CfEditError(`Date-occurring period "${period}" cannot be saved.`)
+      }
+      return element(
+        `${attributes('timePeriod', priority, stopIfTrue, dxfId)} timePeriod="${period}"`,
+        [formula(anchor)],
+      )
+    }
     default:
       throw new CfEditError(`Unsupported highlight rule "${String(subType)}".`)
   }

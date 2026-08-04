@@ -192,6 +192,69 @@ describe('applyCfRules', () => {
     )
   })
 
+  it('writes a date-occurring rule with the attribute and the formula Excel evaluates', () => {
+    // Excel needs both: the timePeriod attribute alone highlights nothing,
+    // because the formula is what actually gets evaluated per cell.
+    const dxfs = new FakeDxfs()
+    const xml = applyCfRules(
+      SHEET,
+      [
+        {
+          ranges: [{ startRow: 1, endRow: 8, startColumn: 4, endColumn: 4 }],
+          stopIfTrue: false,
+          rule: {
+            type: 'highlightCell',
+            subType: 'timePeriod',
+            operator: 'thisMonth',
+            style: { bg: { rgb: '#FFC7CE' } },
+          },
+        },
+      ],
+      dxfs,
+    )
+    expect(xml).toContain('type="timePeriod"')
+    expect(xml).toContain('timePeriod="thisMonth"')
+    expect(xml).toContain('<formula>AND(MONTH(E2)=MONTH(TODAY()),YEAR(E2)=YEAR(TODAY()))</formula>')
+  })
+
+  it('covers every period the workbook DSL offers, so none can be created and not saved', () => {
+    // The DSL let the agent add a time-period rule long before this could
+    // serialise one; the save then threw and the whole workbook failed to
+    // write. Any period the DSL accepts has to round-trip.
+    const periods = [
+      'today',
+      'yesterday',
+      'tomorrow',
+      'last7Days',
+      'thisWeek',
+      'lastWeek',
+      'nextWeek',
+      'thisMonth',
+      'lastMonth',
+      'nextMonth',
+    ]
+    for (const period of periods) {
+      const xml = applyCfRules(
+        SHEET,
+        [
+          {
+            ranges: [{ startRow: 0, endRow: 4, startColumn: 0, endColumn: 0 }],
+            stopIfTrue: false,
+            rule: {
+              type: 'highlightCell',
+              subType: 'timePeriod',
+              operator: period,
+              style: { bg: { rgb: '#FFC7CE' } },
+            },
+          },
+        ],
+        new FakeDxfs(),
+      )
+      expect(xml, period).toContain(`timePeriod="${period}"`)
+      expect(xml, period).toMatch(/<formula>.+<\/formula>/)
+    }
+  })
+
   it('maps the worst-first rating sets and strict thresholds', () => {
     const xml = applyCfRules(
       SHEET,
@@ -263,7 +326,7 @@ describe('applyCfRules', () => {
     ).toBe(false)
   })
 
-  it('fails closed on Univer-only icon sets and time periods', () => {
+  it('fails closed on Univer-only icon sets', () => {
     expect(() =>
       applyCfRules(
         SHEET,
@@ -283,6 +346,9 @@ describe('applyCfRules', () => {
         new FakeDxfs(),
       ),
     ).toThrow(/icon set/)
+  })
+
+  it('still fails closed on a period it has no formula for', () => {
     expect(() =>
       applyCfRules(
         SHEET,
@@ -290,12 +356,17 @@ describe('applyCfRules', () => {
           {
             ranges: [range],
             stopIfTrue: false,
-            rule: { type: 'highlightCell', subType: 'timePeriod', operator: 'today', style: {} },
+            rule: {
+              type: 'highlightCell',
+              subType: 'timePeriod',
+              operator: 'lastQuarter',
+              style: {},
+            },
           },
         ],
         new FakeDxfs(),
       ),
-    ).toThrow(/Date-occurring/)
+    ).toThrow(/lastQuarter/)
   })
 })
 
