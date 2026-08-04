@@ -43,6 +43,15 @@ export function buildLazyChangePlan(
         before: readCell(operation.address),
         after: { value: operation.value },
       })
+    } else if (operation.op === 'set_cell_rich') {
+      cellChanges.push({
+        sheetId: operation.sheetId,
+        address: operation.address,
+        before: readCell(operation.address),
+        // value carries the concatenated text so everything downstream that
+        // only wants the string keeps working; rich carries the run structure
+        after: { value: operation.runs.map((run) => run.text).join(''), rich: operation.runs },
+      })
     } else if (operation.op === 'set_formula') {
       cellChanges.push({
         sheetId: operation.sheetId,

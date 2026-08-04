@@ -157,9 +157,16 @@ export class InMemoryWorkbookAdapter implements WorkbookAdapter {
       const after =
         operation.op === 'set_cell'
           ? { value: operation.value }
-          : operation.op === 'set_formula'
-            ? { value: null, formula: operation.formula }
-            : { value: null }
+          : operation.op === 'set_cell_rich'
+            ? // value keeps the whole string so readers that only want text are
+              // unaffected; rich carries the per-run look alongside it
+              {
+                value: operation.runs.map((run) => run.text).join(''),
+                rich: operation.runs,
+              }
+            : operation.op === 'set_formula'
+              ? { value: null, formula: operation.formula }
+              : { value: null }
       cellChanges.push({ sheetId: sheet.id, address: operation.address, before, after })
       replaceCell(working, sheet.id, operation.address, after)
     }

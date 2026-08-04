@@ -37,7 +37,12 @@ import {
 import { splitSheetRef, type CellBounds } from '../domain/chart-visual'
 import { InMemoryWorkbookAdapter } from '../domain/in-memory-workbook'
 import { WORST_FIRST_ICON_SETS } from '../gateway/xlsx-cf'
-import type { CellFormatState, CellState, WorkbookSnapshot } from '../domain/workbook.types'
+import type {
+  CellFormatState,
+  CellState,
+  RichRun,
+  WorkbookSnapshot,
+} from '../domain/workbook.types'
 import type {
   WorkbookCellStyle,
   WorkbookCfState,
@@ -47,7 +52,6 @@ import type {
   WorkbookFilterState,
   WorkbookNoteState,
   WorkbookRangeResult,
-  WorkbookRichRun,
   WorkbookVisualObject,
 } from '../shared/desktop-api'
 import {
@@ -2011,9 +2015,15 @@ function applyTableBanding(
   }
 }
 
+/**
+ * `runs` is deliberately looser than WorkbookRichRun: the DSL lets a run set
+ * only what it changes ("bold the second word"), and every flag is read
+ * truthily below, so requiring all four would force callers to invent values
+ * for flags they have no opinion about.
+ */
 export function toRichTextDocument(
   text: string,
-  runs: readonly WorkbookRichRun[] = [],
+  runs: readonly RichRun[] = [],
 ): ICellData['p'] {
   const textRuns = []
   let cursor = 0

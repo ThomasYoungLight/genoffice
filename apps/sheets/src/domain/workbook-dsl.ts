@@ -22,6 +22,43 @@ const setCellSchema = z.object({
   expectedValue: cellScalarSchema.optional(),
 })
 
+/**
+ * One run of a rich string: a stretch of text with its own look.
+ *
+ * Everything except `text` is optional, but omitting a flag is not the same as
+ * inheriting it. Verified in Excel: where runs carry no rPr at all, the first
+ * picks up the cell's font and later ones render in the default font, so a bold
+ * cell comes out bold up to the first styled run and regular after it. Callers
+ * that care should state the formatting on every run; the writing guide says so
+ * too.
+ */
+const richRunSchema = z
+  .object({
+    text: z.string().max(4096),
+    bold: z.boolean().optional(),
+    italic: z.boolean().optional(),
+    underline: z.boolean().optional(),
+    strikethrough: z.boolean().optional(),
+    color: hexColorSchema.optional(),
+    size: z.number().positive().max(409).optional(),
+    family: z.string().max(64).optional(),
+  })
+  // strict, unlike its siblings: a misspelled flag here is a run that quietly
+  // renders plain, and the model has no way to notice it was ignored
+  .strict()
+
+/**
+ * A cell whose text is not uniformly formatted — a bold word inside a sentence.
+ * format_range cannot express it: formatting there applies to whole cells, and
+ * the run structure lives in the string, not the style.
+ */
+const setCellRichSchema = z.object({
+  op: z.literal('set_cell_rich'),
+  sheetId: z.string().min(1),
+  address: cellAddressSchema,
+  runs: z.array(richRunSchema).min(1).max(64),
+})
+
 const setFormulaSchema = z.object({
   op: z.literal('set_formula'),
   sheetId: z.string().min(1),
@@ -835,6 +872,7 @@ const findReplaceSchema = z.object({
 
 export const workbookOperationSchema = z.discriminatedUnion('op', [
   setCellSchema,
+  setCellRichSchema,
   setFormulaSchema,
   clearCellSchema,
   setRangeSchema,
@@ -962,7 +1000,12 @@ export type DeleteVisualOperation = z.infer<typeof deleteVisualSchema>
 export type DeleteTableOperation = z.infer<typeof deleteTableSchema>
 export type AddSparklineOperation = z.infer<typeof addSparklineSchema>
 export type FindReplaceOperation = z.infer<typeof findReplaceSchema>
-export type CellContentOperation = SetCellOperation | SetFormulaOperation | ClearCellOperation
+export type SetCellRichOperation = z.infer<typeof setCellRichSchema>
+export type CellContentOperation =
+  | SetCellOperation
+  | SetCellRichOperation
+  | SetFormulaOperation
+  | ClearCellOperation
 /** what range ops expand into; the only shapes executors have to handle */
 export type PrimitiveOperation =
   | CellContentOperation
@@ -1023,6 +1066,7 @@ const LAYOUT_OPS = new Set([
 // row/column coordinates too, so they count the same way.
 const CELL_CONTENT_OPS = new Set([
   'set_cell',
+  'set_cell_rich',
   'set_formula',
   'clear_cell',
   'set_range',

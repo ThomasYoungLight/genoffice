@@ -28,6 +28,7 @@ import {
   queueVisualInstall,
   sheetOutline,
   syncUniver,
+  toRichTextDocument,
   univerDefinedNames,
 } from './univer-sync'
 import {
@@ -2390,6 +2391,12 @@ export function App(): React.JSX.Element {
         const range = worksheet.getRange(change.address)
         if (change.after.formula) range.setFormula(change.after.formula)
         else if (change.after.value === null) range.clearContent()
+        else if (change.after.rich && typeof change.after.value === 'string') {
+          // A rich string is a document, not a value: writing it as `v` would
+          // keep the text and drop every run. The journal reads the runs back
+          // out of `p`, which is what carries them into sharedStrings on save.
+          range.setValues([[{ p: toRichTextDocument(change.after.value, change.after.rich) }]])
+        }
         // Explicit f/si null mirrors the cell editor: overwriting a formula
         // cell with a value must clear the formula (in Univer and journal).
         else range.setValues([[{ v: change.after.value, f: null, si: null }]])

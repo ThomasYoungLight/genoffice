@@ -8,9 +8,27 @@ import type { SheetVisual } from './chart-visual'
 
 export type CellScalar = string | number | boolean | null
 
+/** one stretch of a rich string with its own look; absent fields inherit the cell's */
+export interface RichRun {
+  readonly text: string
+  readonly bold?: boolean | undefined
+  readonly italic?: boolean | undefined
+  readonly underline?: boolean | undefined
+  readonly strikethrough?: boolean | undefined
+  readonly color?: string | undefined
+  readonly size?: number | undefined
+  readonly family?: string | undefined
+}
+
 export interface CellState {
   readonly value: CellScalar
   readonly formula?: string | undefined
+  /**
+   * Per-run styling, when the cell's text is not uniformly formatted. `value`
+   * still holds the whole string, so everything that only wants the text —
+   * search, expectedValue, the plan summary — keeps working unchanged.
+   */
+  readonly rich?: readonly RichRun[] | undefined
 }
 
 /** resolved per-cell formatting; unlike CellFormatPatch, never holds nulls */

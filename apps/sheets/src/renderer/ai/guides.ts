@@ -24,7 +24,7 @@ export interface GuideEntry {
 export const GUIDE_CATALOG: Readonly<Record<string, GuideEntry>> = {
   writing: {
     description:
-      'Content writing: field definitions for set_cell/set_formula/set_range/clear_*, formula rules, share columns and value/unit conventions',
+      'Content writing: field definitions for set_cell/set_cell_rich/set_formula/set_range/clear_*, formula rules, share columns and value/unit conventions',
     content: writingGuide,
   },
   formatting: {

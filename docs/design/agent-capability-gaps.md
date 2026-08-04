@@ -535,13 +535,36 @@ sidecar read the mis-ordered part happily. The gate proves the workbook still
 parses for us, not that Excel will accept it — which is exactly the residual
 risk the section below describes, now with a concrete example.
 
-### Step 2 — Sheets rich text (medium)
+### ~~Step 2 — Sheets rich text (medium)~~ — done
 
-`set_cell_rich`, shared-string runs, Univer mapping. The one item here a user
-would notice unprompted.
+Smaller than budgeted, because most of it already existed. The gateway has
+written per-run properties since rich text was supported for typing, the edit
+journal extracts runs out of Univer's document model, and `toRichTextDocument`
+maps them back. The only thing missing was the DSL: `set_cell_rich` now carries
+runs into a `cellChanges` entry whose `value` is the joined text and whose
+`rich` is the run list, and App writes it to Univer as a document rather than a
+value — from there the existing journal and save path carry it to the file
+untouched.
 
-**Done when:** a rich cell round-trips with its runs, does not collide with the
-plain string of the same text, and Excel shows the runs.
+Two of the plan's assumptions were wrong.
+
+**Shared-string dedup is not a hazard here.** The plan flagged that a rich
+string must not collide with the plain string of the same text. It cannot: the
+gateway writes rich cells as inline strings (`t="inlineStr"` with `<is>`), so
+there is no shared-string entry to collide with.
+
+**A run that omits a flag does not inherit it.** The first version of this
+documented runs as "set only what you change, the rest inherits the cell's
+formatting". Excel says otherwise. In a cell styled bold, with runs 1 and 3
+carrying no `rPr` at all, run 1 renders bold and run 3 renders regular — the
+first bare run picks up the cell font and later ones fall back to the default.
+Identical markup, different rendering, and only visible at 300% zoom. The guide
+and the schema comment now tell callers to state the formatting on every run.
+
+**Done:** the operation round-trips through the planner with text and runs
+intact, the schema is strict so a misspelled flag is refused rather than
+silently rendering plain, and Excel shows all four runs — green bold, red italic
+underlined — with no repair prompt.
 
 ### Step 3 — Docs raw (medium)
 

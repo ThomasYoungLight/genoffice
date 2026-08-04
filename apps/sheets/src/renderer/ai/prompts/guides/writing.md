@@ -7,6 +7,16 @@
 - `{op:"clear_cell", sheetId, address}` — clears a single cell.
 - `{op:"set_range", sheetId, start:"B2", values:[[row1], [row2], …]}` — bulk write: a 2D array laid out by rows, spreading right and down from start. **Strings starting with = are written as formulas.** Always use set_range for contiguous regions; never split them into many set_cell ops.
 - `{op:"clear_range", sheetId, range:"A1:C10"}` — clears a rectangular region.
+- `{op:"set_cell_rich", sheetId, address, runs:[{text, bold?, italic?, underline?, strikethrough?, color?, size?, family?}, …]}` — writes one cell whose text is **not uniformly formatted**: the runs are concatenated in order, each keeping its own look. Use it only when part of a cell differs from the rest; a whole cell in bold is `format_range`, which is cheaper and keeps the value a plain string.
+
+**State the formatting you want on every run.** A run that specifies nothing does not reliably inherit the cell's own formatting: in Excel the first such run picks up the cell font while later ones render in the default font, so a bold cell with unstyled runs comes out bold at the start and regular after the first styled run. If the cell is styled and you want that look kept, repeat it on each run.
+
+```json
+{"op":"set_cell_rich","sheetId":"s1","address":"A1","runs":[
+  {"text":"Revenue ","bold":true},
+  {"text":"up 12%","bold":true,"color":"#107C41"}
+]}
+```
 
 Limit: at most 2000 expanded cell changes per batch.
 

@@ -190,7 +190,7 @@ export const WORKBOOK_TOOLS: AgentToolDef[] = [
       '{op:"set_cell",sheetId,address,value} | {op:"set_formula",sheetId,address,formula(starts with =)} | ' +
       '{op:"clear_cell",sheetId,address} | {op:"rename_sheet",sheetId,name}. ' +
       'Field definitions for the remaining operations live in the guides — load_guide before using them: ' +
-      'writing(set_range/clear_range/find_replace) | formatting(format_range) | ' +
+      'writing(set_range/clear_range/find_replace/set_cell_rich) | formatting(format_range) | ' +
       'layout(sort_range/merge_cells/unmerge_cells/set_row_height/set_col_width/set_rows_hidden/set_cols_hidden/set_freeze/set_page_setup) | ' +
       'structure(insert_rows/delete_rows/insert_cols/delete_cols/add_sheet/delete_sheet/' +
       'duplicate_sheet/set_sheet_hidden/move_sheet/protect_sheet) | ' +
