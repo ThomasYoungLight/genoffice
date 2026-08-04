@@ -2,6 +2,7 @@ import type { Editor } from '@tiptap/core'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import {
   TABLE_HEADER_FILL,
+  wordTimestamp,
   type Block,
   type TableCell,
   type TableModel,
@@ -725,7 +726,7 @@ export interface AiTrack {
 }
 
 function revisionDate(): string {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  return wordTimestamp()
 }
 
 /** blocks whose content ins/del marks can fully represent (tracked replace) */

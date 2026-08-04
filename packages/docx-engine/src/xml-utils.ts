@@ -66,3 +66,28 @@ export function underlineProp(parent: XNode): boolean {
   const val = attrsOf(child)['w:val']
   return val !== undefined && val !== 'none'
 }
+
+/**
+ * A timestamp in the form Word writes into `w:date` — on comments, on `w:ins`
+ * and on `w:del`.
+ *
+ * The format is local wall-clock digits with a `Z` suffix, which is not what
+ * the suffix means. Word is self-consistent about it: it renders the digits as
+ * local time whatever the designator says, and carries the real instant
+ * separately in `w16du:dateUtc`. Verified by letting Word author both a comment
+ * and a tracked insertion at 13:49 local (UTC+8) and reading back
+ * `w:date="2026-08-04T13:49:00Z" w16du:dateUtc="2026-08-04T05:49:00Z"`.
+ *
+ * A true UTC timestamp here is therefore displayed shifted by the author's UTC
+ * offset — every comment and tracked change stamped hours away from when it
+ * was made. We do not write `w16du:dateUtc`: it needs namespace plumbing on
+ * every part that carries a date, and the display is already correct without
+ * it.
+ */
+export function wordTimestamp(now: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return (
+    `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}` +
+    `T${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}Z`
+  )
+}

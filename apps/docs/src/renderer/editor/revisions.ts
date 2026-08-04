@@ -12,6 +12,7 @@
 import { Extension, type Editor } from '@tiptap/core'
 import type { Node as PmNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
+import { wordTimestamp } from '@genoffice/docx-engine'
 import {
   AddMarkStep,
   Mapping,
@@ -632,7 +633,7 @@ export const TrackChangesExtension = Extension.create<object, TrackChangesStorag
           const insType = newState.schema.marks.ins
           const delType = newState.schema.marks.del
           if (!insType || !delType) return null
-          const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+          const now = wordTimestamp()
           const insMark = insType.create({ author: storage.author, date: now })
           const delMark = delType.create({ author: storage.author, date: now })
 

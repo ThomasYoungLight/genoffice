@@ -10,6 +10,7 @@ import {
   nextNoteId,
   parseDocx,
   verifyProtectionPassword,
+  wordTimestamp,
   type CommentInfo,
   type DocProtection,
   type NoteInfo,
@@ -161,7 +162,7 @@ export function submitNewComment(ctx: ReviewContext, text: string): void {
     ctx.setCommentComposing(false)
     return
   }
-  const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const now = wordTimestamp()
   ctx.setComments((prev) => [...prev, { id, author: 'User', date: now, text }])
   ctx.setCommentsDirty(true)
   ctx.setCommentComposing(false)
@@ -177,7 +178,7 @@ export function replyToComment(ctx: ReviewContext, parentId: string, text: strin
     ctx.setStatus(t('appCommentAnchorGone'))
     return
   }
-  const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const now = wordTimestamp()
   ctx.setComments((prev) => [...prev, { id, author: 'User', date: now, text, parentId }])
   ctx.setCommentsDirty(true)
   ctx.dirtyRef.current = true

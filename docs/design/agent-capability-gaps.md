@@ -369,6 +369,51 @@ Worth carrying into row 6: the docs side writes `w:date` with a `Z`
 Word and PowerPoint need not agree — so it is a question for row 6 to answer in
 Word, not a bug to fix here on the strength of PowerPoint's behaviour.
 
+**Row 6 — docs comments, text boxes and shapes: one bug, fixed; it was the
+question row 5 left open.**
+
+Comments, text boxes and shapes all reach Word correctly. The comment anchors to
+its range and shows in the pane with the right author, initials and text; the
+ellipse renders as an ellipse with the right fill; the text box renders. No
+repair prompt, and the title bar reads "row6" rather than "Compatibility Mode",
+which incidentally confirms the settings-part fix on the docs save path too.
+
+The open question from row 5 turned out to be a bug after all, and the answer is
+stranger than either alternative I had in mind. **Word writes local wall-clock
+digits with a `Z` suffix** and reads them back as local, keeping the true
+instant in a separate `w16du:dateUtc`. Letting Word author both a comment and a
+tracked insertion at 13:49 local in UTC+8 gave:
+
+```xml
+<w:ins w:date="2026-08-04T13:49:00Z" w16du:dateUtc="2026-08-04T05:49:00Z">
+```
+
+So `w:date` is not UTC despite the designator, and our four writers — two in
+`review-actions.ts`, one in `protocol.ts`, one in `revisions.ts` — all put a
+genuine UTC timestamp there. Every comment and every tracked change displayed
+shifted by the author's UTC offset: a comment made at 1:51 PM read "5:42 AM"
+next to Word's own "1:46 PM" in the same pane. All four now share one
+`wordTimestamp()` helper in the engine, next to the wire format it belongs to.
+Re-verified in Word: "4/8/26 1:51 PM".
+
+`w16du:dateUtc` is deliberately not written. It needs namespace plumbing on
+every part that carries a date, and the display is already right without it.
+
+Note that this is the *opposite* convention from PowerPoint, which writes local
+digits with **no** designator. The rule that holds across both is the one worth
+remembering: **the digits are local wall-clock time**; only the suffix differs.
+
+An observation, not a bug: inserting a text box and then a shape leaves the two
+floats overlapping, because each anchors at the end of the document with the
+same offset. Word behaves comparably when two shapes are inserted without being
+moved, and nothing about the file is wrong, so this was left alone.
+
+A harness note: the first attempt opened in Compatibility Mode and briefly
+looked like a regression of `0322ac2`. It was the *test helper* `buildDocx`,
+which writes no settings part — not the product path. Rebasing the fixture on
+`buildBlankDocx` removed the confound. Check what the harness builds before
+believing what the harness shows.
+
 A methodology note to go with row 1's: **rebuild before you conclude.** A "no
 fill" screenshot sent me chasing the dxf markup, and a controlled pair differing
 only in that markup rendered identically. The first file was simply stale.
