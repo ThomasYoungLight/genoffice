@@ -26,6 +26,34 @@ cannot do.
 | ~~3~~ | ~~Docs caption and index fields~~    | **Done**                                |
 | 4   | OLE, Zoom links, threaded comments, …  | nothing; low value (recommend: decline) |
 
+## Visuals do not reach print or PDF
+
+Found while questioning the slicer decision, and worth more than the slicer.
+
+Charts, shapes and images are not rendered by Univer. They are our own React
+components mounted through `registerComponent` + `addFloatDomToRange`, i.e. DOM
+overlaid on the grid rather than anything in Univer's model. That is fine on
+screen and it is why the "Univer cannot render a slicer" reasoning below was
+wrong — but it has a consequence nobody had recorded.
+
+`buildSheetPrintPayload` (`print-html.ts`) builds an HTML `<table>` from cells,
+styles and merges. `exportPdf` (`main/pdf-export.ts`) writes exactly that string
+to a file, loads it in a hidden window with `javascript: false`, and calls
+`printToPDF`. Nothing captures the live grid, so anything absent from the
+payload cannot appear in the output — and the payload has no representation for
+a visual at all. `PrintWorksheet` has no parameter for one.
+
+So **every chart, shape and image is missing from printed and exported output.**
+`apps/sheets/tests/print-visuals.test.ts` pins this; its middle assertion is the
+one that should fail first when the gap is closed.
+
+The cheap fix is in `print-html.ts`, not in Univer: the payload is already HTML,
+so emitting positioned elements for visuals fixes charts, shapes and images
+together. Moving visuals into Univer's render tree via a plugin would fix it by
+construction and is the larger, better answer — `create-univer.ts` already
+accepts custom `plugins` and a `DependencyOverride`, so it needs no fork — but
+it is a project, not a patch.
+
 ## Background: three different package architectures
 
 Everything below turns on one fact, so it is worth stating plainly. The three
