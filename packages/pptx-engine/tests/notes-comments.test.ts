@@ -88,6 +88,36 @@ describe('slide comments', () => {
     expect(deleteSlideComment(opened, 0, { authorId: a.authorId, idx: a.idx })).toBe(false)
   })
 
+  /**
+   * Both of these were verified against PowerPoint by adding comments through
+   * its own UI and reading back what it wrote: dt="2026-08-04T13:29:58.737"
+   * (local, no Z) and pos 106 → 202 → 298.
+   */
+  it('timestamps a comment in local time, which is how PowerPoint reads dt back', async () => {
+    const opened = await openPptx(await createBlankPptx())
+    const before = new Date()
+    const c = addSlideComment(opened, 0, { author: 'Carol', text: 'when?' })!
+
+    // a trailing Z is the bug: PowerPoint takes the digits as local time either
+    // way, so a UTC timestamp shows up offset by the author's UTC offset
+    expect(c.dt).not.toMatch(/Z$/)
+    expect(c.dt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}$/)
+
+    // the digits are local wall-clock, so reading them as local recovers now
+    const parsed = new Date(c.dt).getTime()
+    expect(parsed).toBeGreaterThanOrEqual(before.getTime() - 1000)
+    expect(parsed).toBeLessThanOrEqual(Date.now() + 1000)
+  })
+
+  it('separates comment badges far enough apart to be distinguishable', async () => {
+    const opened = await openPptx(await createBlankPptx())
+    for (const text of ['one', 'two', 'three']) addSlideComment(opened, 0, { author: 'Carol', text })
+
+    const part = opened.archive.readText('ppt/comments/comment1.xml') ?? ''
+    const xs = [...part.matchAll(/<p:pos x="(\d+)"/g)].map((m) => Number(m[1]))
+    expect(xs).toEqual([106, 202, 298])
+  })
+
   it('comments on different slides go to different parts', async () => {
     const opened = await openPptx(fx('01_standard_business.pptx'))
     addSlideComment(opened, 0, { author: 'Carol', text: 'first slide' })

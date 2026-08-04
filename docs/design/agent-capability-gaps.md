@@ -333,6 +333,42 @@ tick marks on the radar axes. Neither changed the rendering, and both were
 reverted rather than committed as unverified "fixes". Whatever causes it is not
 those two things, and it is cosmetic — the data is right in every chart.
 
+**Row 5 — pptx sections and comments: sections correct, two comment bugs, both
+fixed.**
+
+Sections are right. PowerPoint's thumbnail pane shows "Overview" (slide 1),
+"Findings" (2–3) and "Next steps" (4–5), and its accessibility tree agrees
+("Findings Expanded section 2 of 3 (2 slides)"). The auto-created "Default
+Section" for the leading unsectioned slide is what PowerPoint would have done
+itself. No repair prompt.
+
+Comments carried two defects, neither of which produced an error:
+
+- **Every badge on a slide stacked into one.** The stagger was
+  `10 + (count % 8) * 6`, and `p:pos` units are small enough that six of them
+  are a fraction of a pixel. Three comments drew one badge.
+- **Timestamps were wrong by the author's UTC offset.** `dt` was written with
+  `new Date().toISOString()`, so it ended in `Z`. PowerPoint ignores the
+  designator and reads the digits as local time: comments created seconds
+  earlier displayed as "8 hours ago" in UTC+8. Worse, the error is permanent —
+  PowerPoint's own re-save strips the `Z` and keeps the shifted digits.
+
+Both fixes were measured rather than guessed. Adding comments through
+PowerPoint's own UI and reading back what it wrote gave
+`dt="2026-08-04T13:29:58.737"` (local, no designator) and positions 106 → 202 →
+298, i.e. a step of 96 from a start of 106. The fix reproduces both exactly, and
+re-verification shows three separate badges and three "A few seconds ago".
+
+PowerPoint also writes `<p15:threadingInfo timeZoneBias="-480"/>` on its own
+comments. That was deliberately **not** copied: the local-time fix alone makes
+the timestamps display correctly, and adding markup that is not needed to fix
+the observed defect is how unverified guesses get shipped.
+
+Worth carrying into row 6: the docs side writes `w:date` with a `Z`
+(`review-actions.ts`, `revisions.ts`, `protocol.ts`). That may well be correct —
+Word and PowerPoint need not agree — so it is a question for row 6 to answer in
+Word, not a bug to fix here on the strength of PowerPoint's behaviour.
+
 A methodology note to go with row 1's: **rebuild before you conclude.** A "no
 fill" screenshot sent me chasing the dxf markup, and a controlled pair differing
 only in that markup rendered identically. The first file was simply stale.

@@ -38,6 +38,32 @@ function setEntry(archive: PackageArchive, path: string, xml: string): void {
   archive.entries.set(path, Buffer.from(xml, 'utf8'))
 }
 
+/**
+ * A comment's dt as PowerPoint writes it: local wall-clock time, no timezone
+ * designator. PowerPoint ignores the trailing Z of an ISO string and reads the
+ * digits as local time, so a UTC timestamp made every comment appear offset by
+ * the author's UTC offset — and the error became permanent, because the first
+ * PowerPoint re-save drops the Z and keeps the shifted digits.
+ */
+function commentTimestamp(now: Date): string {
+  const p = (n: number, width = 2) => String(n).padStart(width, '0')
+  return (
+    `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}` +
+    `T${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}.${p(now.getMilliseconds(), 3)}`
+  )
+}
+
+/**
+ * Where the nth comment badge on a slide sits. PowerPoint steps its own badges
+ * down the diagonal from 106 in units of 96; the previous step of 6 was a small
+ * fraction of a pixel, so every badge on a slide stacked into a single one. The
+ * wrap keeps a heavily commented slide's badges on the slide, where PowerPoint
+ * would eventually walk them off it.
+ */
+function badgePosition(existing: number): number {
+  return 106 + (existing % 20) * 96
+}
+
 function addContentTypeOverride(
   archive: PackageArchive,
   partPath: string,
@@ -179,10 +205,10 @@ export function addSlideComment(
   const xml = archive.readText(partPath)
   if (!xml) return null
 
-  const dt = new Date().toISOString()
+  const dt = commentTimestamp(new Date())
   // Positions staggered along the top-left diagonal so comment badges don't overlap
   const count = [...xml.matchAll(/<p:cm\b/g)].length
-  const pos = 10 + (count % 8) * 6
+  const pos = badgePosition(count)
   const cm =
     `<p:cm authorId="${authorId}" dt="${dt}" idx="${nextIdx}">` +
     `<p:pos x="${pos}" y="${pos}"/>` +
