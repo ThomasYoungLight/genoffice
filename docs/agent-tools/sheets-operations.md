@@ -431,6 +431,8 @@ The `propose_operations` tool takes a list of these. 53 operations; every field 
 | `printGridlines` | boolean                        |          |
 | `printHeadings`  | boolean                        |          |
 | `printArea`      | string \| null                 |          |
+| `rowBreaks`      | number[]                       |          |
+| `colBreaks`      | string[]                       |          |
 
 ## `set_freeze`
 

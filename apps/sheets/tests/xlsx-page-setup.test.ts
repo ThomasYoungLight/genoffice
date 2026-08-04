@@ -11,6 +11,55 @@ const BARE = '<worksheet><sheetData/></worksheet>'
 const WITH_VIEW =
   '<worksheet><sheetViews><sheetView workbookViewId="0"/></sheetViews>' + '<sheetData/></worksheet>'
 
+describe('manual page breaks', () => {
+  /**
+   * brk@id is the zero-based index of the row or column the break falls
+   * *before*, and man="1" is what marks it a manual break — without it Excel
+   * treats the entry as one of its own and drops it on the next repagination.
+   */
+  it('writes rowBreaks and colBreaks in CT_Worksheet order', () => {
+    const xml = applyPageSetupState(BARE, {
+      sheetName: 'Sheet1',
+      rowBreaks: [24, 49],
+      colBreaks: [3],
+    })
+    expect(xml).toContain(
+      '<rowBreaks count="2" manualBreakCount="2">' +
+        '<brk id="24" max="16383" man="1"/><brk id="49" max="16383" man="1"/></rowBreaks>',
+    )
+    expect(xml).toContain(
+      '<colBreaks count="1" manualBreakCount="1"><brk id="3" max="1048575" man="1"/></colBreaks>',
+    )
+    // rowBreaks precedes colBreaks, or Excel repairs the file
+    expect(xml.indexOf('<rowBreaks')).toBeLessThan(xml.indexOf('<colBreaks'))
+  })
+
+  it('declares the whole set, so repeating a call changes nothing', () => {
+    const once = applyPageSetupState(BARE, { sheetName: 'S', rowBreaks: [24] })
+    const twice = applyPageSetupState(once, { sheetName: 'S', rowBreaks: [24] })
+    expect(twice).toBe(once)
+  })
+
+  it('sorts and de-duplicates, because Excel expects ascending ids', () => {
+    const xml = applyPageSetupState(BARE, { sheetName: 'S', rowBreaks: [49, 24, 49] })
+    expect(xml).toContain('<brk id="24" max="16383" man="1"/><brk id="49" max="16383" man="1"/>')
+    expect(xml).toContain('count="2"')
+  })
+
+  it('clears the element on an empty set rather than writing an empty one', () => {
+    const withBreak = applyPageSetupState(BARE, { sheetName: 'S', rowBreaks: [24] })
+    const cleared = applyPageSetupState(withBreak, { sheetName: 'S', rowBreaks: [] })
+    expect(cleared).not.toContain('rowBreaks')
+    expect(cleared).toBe(BARE)
+  })
+
+  it('leaves breaks alone when the state does not mention them', () => {
+    const withBreak = applyPageSetupState(BARE, { sheetName: 'S', rowBreaks: [24] })
+    const other = applyPageSetupState(withBreak, { sheetName: 'S', orientation: 'landscape' })
+    expect(other).toContain('<brk id="24"')
+  })
+})
+
 describe('applyPageSetupState', () => {
   it('creates pageSetup with orientation and paper size before </worksheet>', () => {
     const xml = applyPageSetupState(BARE, {

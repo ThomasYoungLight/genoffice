@@ -73,6 +73,11 @@ function makeExtras() {
   const extras: DocExtras = {
     // the raw tools are covered against a real package in
     // packages/docx-engine/tests/raw.test.ts; here they only have to exist
+    insertCaption: (label: string, text: string) => ({
+      number: 1,
+      display: `${label} 1${text ? ` ${text}` : ''}`,
+    }),
+    insertIndexEntries: (terms: readonly string[]) => [...terms],
     rawList: async () => [],
     rawRead: async () => ({ ok: false, error: 'not wired in this stub' }),
     rawEdit: async () => ({ ok: false, error: 'not wired in this stub' }),

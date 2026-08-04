@@ -350,6 +350,68 @@ interface ReferencesTabProps extends TabProps {
   headingPages?: () => number[] | null
 }
 
+/**
+ * Insert a caption, numbered by counting the captions already carrying the same
+ * SEQ label. Shared with the agent's insert_caption so an AI caption is
+ * numbered in the same sequence as a hand-inserted one rather than starting
+ * its own.
+ */
+export function insertCaptionAt(
+  editor: Editor,
+  blocks: Block[],
+  label: string,
+  text: string,
+): { number: number; display: string } {
+  let count = 0
+  const re = new RegExp(`SEQ\\s+${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\\\]`)
+  editor.state.doc.forEach((node) => {
+    if (node.type.name !== 'docProtected') return
+    if (re.test(xmlOfNode(node as never, blocks))) count += 1
+  })
+  const number = count + 1
+  const trimmed = text.trim()
+  const display = `${label} ${number}${trimmed ? ` ${trimmed}` : ''}`
+  editor
+    .chain()
+    .focus()
+    .insertContent({
+      type: 'docProtected',
+      attrs: {
+        docxIndex: null,
+        blockType: 'passthrough',
+        label: 'Caption',
+        genXml: generateCaptionXml(label, number, trimmed),
+        fieldDisplay: { kind: 'text', left: display },
+      },
+    } as never)
+    .run()
+  return { number, display }
+}
+
+/** Insert one XE index-entry field per term, de-duplicated and sorted. */
+export function insertIndexFieldsAt(editor: Editor, terms: readonly string[]): string[] {
+  const unique = [...new Set(terms.map((term) => term.trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, 'zh-CN'),
+  )
+  if (unique.length === 0) return []
+  const nodes = generateIndexFieldXml(unique).map((xml, i) => ({
+    type: 'docProtected',
+    attrs: {
+      docxIndex: null,
+      blockType: 'passthrough',
+      label: 'Index entry',
+      genXml: xml,
+      fieldDisplay: { kind: 'tocLine', left: unique[i], right: '', level: 1 },
+    },
+  }))
+  editor
+    .chain()
+    .focus()
+    .insertContent(nodes as never)
+    .run()
+  return unique
+}
+
 export function ReferencesTab({
   editor,
   hasDoc,

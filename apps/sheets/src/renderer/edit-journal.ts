@@ -178,6 +178,10 @@ export interface PageSetupJournalState {
   showFormulas?: boolean
   /// A1 range to print, or null to clear the print area.
   printArea?: string | null
+  /// Manual page breaks as the whole desired set: 0-based indexes of the row
+  /// or column each break falls before. An empty array clears them.
+  rowBreaks?: number[]
+  colBreaks?: number[]
   /// Rows repeated at the top of every page ("1:2"), or null to clear.
   printTitles?: string | null
   /// Frozen pane counts (0/0 = unfrozen); saved as sheetView <pane>.

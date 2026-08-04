@@ -2332,6 +2332,11 @@ export function App(): React.JSX.Element {
           if (op.printGridlines !== undefined) patch.printGridlines = op.printGridlines
           if (op.printHeadings !== undefined) patch.printHeadings = op.printHeadings
           if (op.printArea !== undefined) patch.printArea = op.printArea
+          // the DSL speaks in row numbers and column letters; the file wants
+          // the zero-based index of the row or column the break falls before
+          if (op.rowBreaks !== undefined) patch.rowBreaks = op.rowBreaks.map((row) => row - 1)
+          if (op.colBreaks !== undefined)
+            patch.colBreaks = op.colBreaks.map((label) => columnIndex(label))
           // Scale and fit-to-page are exclusive; whichever the op sets wins,
           // and a fit on one axis keeps the other axis' prior value.
           if (op.scale !== undefined) {

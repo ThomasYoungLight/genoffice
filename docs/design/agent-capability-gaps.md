@@ -22,8 +22,8 @@ cannot do.
 | #   | Item                                   | Blocked on                              |
 | --- | -------------------------------------- | --------------------------------------- |
 | ~~1~~ | ~~Raw OOXML for docs and sheets~~    | **Done** for both formats               |
-| 2   | Sheets slicers, page breaks, rich text | new engine + sidecar support            |
-| 3   | Docs caption and index fields          | nothing; small                          |
+| 2   | Sheets slicers (page breaks, rich text: **done**) | Univer has no slicer UI      |
+| ~~3~~ | ~~Docs caption and index fields~~    | **Done**                                |
 | 4   | OLE, Zoom links, threaded comments, …  | nothing; low value (recommend: decline) |
 
 ## Background: three different package architectures
@@ -601,10 +601,31 @@ opens the result with no repair prompt — then **re-saves it with the raw setti
 still in place**, which is the part that proves Word parsed the edit rather than
 merely tolerating it.
 
-### Step 4 — Sheets page breaks, docs caption/index (small)
+### ~~Step 4 — Sheets page breaks, docs caption/index (small)~~ — done
 
-Both are single-session pieces. Fold them into whatever touches those files
-next rather than scheduling them.
+**Docs caption and index** were the predicted shape exactly: the engine and the
+References ribbon already did the work, so `insertCaptionAt` and
+`insertIndexFieldsAt` were extracted from the ribbon components and exposed
+through `DocExtras` as `insert_caption` and `insert_index_entries`. The caption
+number is a SEQ field counted from the captions already carrying that label, so
+an agent caption joins the existing sequence instead of starting its own.
+
+**Sheets page breaks** were new. They ride on `set_page_setup` rather than a new
+operation — same worksheet part, same ribbon group, and the same declare-the-
+whole-set shape `printArea` already has, so a repeated call is idempotent and
+`[]` clears. The DSL speaks in row numbers and column letters; the file wants
+`brk@id`, the zero-based index of the row or column the break falls *before*,
+with `man="1"` — without which Excel treats the entry as one of its own
+automatic breaks and discards it on the next repagination.
+
+The off-by-one was verified rather than reasoned about. `rowBreaks: [25]` and
+`colBreaks: ["E"]` on a 60×8 sheet, opened in Excel's Page Break Preview, gives
+four pages split exactly at rows 1–24 / 25–60 and columns A–D / E–H.
+
+`rowBreaks` and `colBreaks` are written last in `applyPageSetupState`, because
+both sit at the end of CT_Worksheet's order and every other insertion anchor
+lists them as things to insert *before* — writing them earlier would have had
+the next setting jump in front of a break we had just written.
 
 ### Not scheduled
 

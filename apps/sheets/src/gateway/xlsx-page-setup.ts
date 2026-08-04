@@ -29,6 +29,11 @@ export interface SheetPageSetupState {
   readonly showFormulas?: boolean | undefined
   readonly printArea?: string | null | undefined
   readonly printTitles?: string | null | undefined
+  /// Manual page breaks, declared as the full desired set (like printArea, not
+  /// add/remove): 1-based row numbers with a break above each, and 0-based
+  /// column indexes with a break to the left of each. An empty array clears.
+  readonly rowBreaks?: readonly number[] | undefined
+  readonly colBreaks?: readonly number[] | undefined
   readonly frozenRows?: number | undefined
   readonly frozenColumns?: number | undefined
   /// Printed header/footer; null clears that half, undefined keeps it.
@@ -47,6 +52,42 @@ const MARGIN_PRESETS = {
 /// pageSetup — inserting before the first of these keeps the schema valid.
 const AFTER_PAGE_SETUP =
   /<headerFooter\b|<rowBreaks\b|<colBreaks\b|<customProperties\b|<cellWatches\b|<ignoredErrors\b|<smartTags\b|<drawing\b|<legacyDrawing\b|<legacyDrawingHF\b|<picture\b|<oleObjects\b|<controls\b|<webPublishItems\b|<tableParts\b|<extLst\b/
+
+/// CT_Worksheet order: elements that may follow rowBreaks, and colBreaks.
+const AFTER_ROW_BREAKS =
+  /<colBreaks\b|<customProperties\b|<cellWatches\b|<ignoredErrors\b|<smartTags\b|<drawing\b|<legacyDrawing\b|<legacyDrawingHF\b|<picture\b|<oleObjects\b|<controls\b|<webPublishItems\b|<tableParts\b|<extLst\b/
+const AFTER_COL_BREAKS =
+  /<customProperties\b|<cellWatches\b|<ignoredErrors\b|<smartTags\b|<drawing\b|<legacyDrawing\b|<legacyDrawingHF\b|<picture\b|<oleObjects\b|<controls\b|<webPublishItems\b|<tableParts\b|<extLst\b/
+
+/// Largest row / column index a break may span, i.e. the sheet's own limits.
+const LAST_COLUMN_INDEX = 16383
+const LAST_ROW_INDEX = 1048575
+
+/**
+ * Replace the manual page breaks with the given set.
+ *
+ * `brk@id` is the zero-based index of the row or column the break falls
+ * *before*, so a break above row 25 is id="24". `man="1"` marks it manual —
+ * without it Excel treats the entry as one of its own automatic breaks and
+ * discards it on the next repagination.
+ */
+function replaceBreaks(
+  xml: string,
+  tag: 'rowBreaks' | 'colBreaks',
+  indexes: readonly number[],
+  max: number,
+  anchor: RegExp,
+): string {
+  const stripped = xml.replace(
+    new RegExp(`<${tag}\\b[^>]*(?:/>|>[\\s\\S]*?</${tag}>)`),
+    '',
+  )
+  const sorted = [...new Set(indexes)].filter((n) => n >= 0 && n <= max).sort((a, b) => a - b)
+  if (sorted.length === 0) return stripped
+  const brks = sorted.map((id) => `<brk id="${id}" max="${max}" man="1"/>`).join('')
+  const element = `<${tag} count="${sorted.length}" manualBreakCount="${sorted.length}">${brks}</${tag}>`
+  return insertWorksheetElement(stripped, element, anchor)
+}
 
 /// CT_Worksheet order: elements that may follow headerFooter.
 const AFTER_HEADER_FOOTER =
@@ -335,6 +376,14 @@ export function applyPageSetupState(worksheetXml: string, state: SheetPageSetupS
   }
   if (state.header !== undefined || state.footer !== undefined) {
     xml = setHeaderFooter(xml, state.header, state.footer)
+  }
+  // last, because both elements sit at the end of CT_Worksheet's order and the
+  // anchors above would otherwise insert in front of a break we just wrote
+  if (state.rowBreaks !== undefined) {
+    xml = replaceBreaks(xml, 'rowBreaks', state.rowBreaks, LAST_COLUMN_INDEX, AFTER_ROW_BREAKS)
+  }
+  if (state.colBreaks !== undefined) {
+    xml = replaceBreaks(xml, 'colBreaks', state.colBreaks, LAST_ROW_INDEX, AFTER_COL_BREAKS)
   }
   return xml
 }

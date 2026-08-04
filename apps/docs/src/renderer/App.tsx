@@ -26,6 +26,10 @@ import {
   type ThemeColors,
   type ThemeFonts,
 } from '@genoffice/docx-engine'
+import {
+  insertCaptionAt,
+  insertIndexFieldsAt,
+} from './components/ribbon-references-tab'
 import type { AiSettings, OpenFileResult } from '../shared/ipc'
 import { AI_PROVIDERS } from '../shared/ipc'
 import type { DocExtras } from './ai/tools'
@@ -1275,6 +1279,9 @@ export function App() {
   // below must not re-create itself every time the document changes
   const docBytesRef = useRef<Uint8Array | null>(null)
   docBytesRef.current = doc?.parsed.internal.originalBytes ?? null
+  // caption numbering walks the parsed blocks to continue the SEQ run
+  const docBlocksRef = useRef<Block[]>([])
+  docBlocksRef.current = doc?.parsed.blocks ?? []
 
   /**
    * The agent's handle on the document parts that are not in the editor tree.
@@ -1346,6 +1353,10 @@ export function App() {
       insertShape: (preset: string) => {
         if (editorRef.current) insertShapeAt(editorRef.current, preset)
       },
+      insertCaption: (label: string, text: string) =>
+        insertCaptionAt(editorRef.current!, docBlocksRef.current, label, text),
+      insertIndexEntries: (terms: readonly string[]) =>
+        insertIndexFieldsAt(editorRef.current!, terms),
       // Raw OOXML runs against the bytes the document was opened from, with
       // any already-accepted edits layered on, so a second edit to a part sees
       // the first. Nothing is applied until save.

@@ -684,6 +684,13 @@ const setPageSetupSchema = z.object({
   printHeadings: z.boolean().optional(),
   /** A1 range to print; null clears the print area */
   printArea: cellRangeSchema.nullable().optional(),
+  /**
+   * Manual page breaks, declared as the whole desired set rather than added one
+   * at a time — the same shape as printArea, so repeating a call is idempotent
+   * and an empty array is how you clear them.
+   */
+  rowBreaks: z.array(z.number().int().min(2).max(1048576)).max(1000).optional(),
+  colBreaks: z.array(columnLabelSchema).max(1000).optional(),
 })
 
 // Cell note (legacy comment): text null removes the note.

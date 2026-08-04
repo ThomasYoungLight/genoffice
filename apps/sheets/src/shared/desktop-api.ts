@@ -758,6 +758,10 @@ export const workbookPageSetupStateSchema = z
     showFormulas: z.boolean().optional(),
     printArea: z.union([z.string().min(1).max(255), z.null()]).optional(),
     printTitles: z.union([z.string().regex(/^\d{1,7}:\d{1,7}$/), z.null()]).optional(),
+    /// Manual page breaks: zero-based index of the row / column each break
+    /// falls before, as the whole desired set. Empty clears them.
+    rowBreaks: z.array(z.number().int().min(1).max(1_048_575)).max(1000).optional(),
+    colBreaks: z.array(z.number().int().min(1).max(16_383)).max(1000).optional(),
     /// Frozen pane counts; both present together, 0/0 removes the pane.
     frozenRows: z.number().int().min(0).max(1_048_575).optional(),
     frozenColumns: z.number().int().min(0).max(16_383).optional(),

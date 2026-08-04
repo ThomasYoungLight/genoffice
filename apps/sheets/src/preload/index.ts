@@ -1529,6 +1529,15 @@ function isPageSetupState(input: unknown): boolean {
     (typeof input.printTitles !== 'string' || !/^\d{1,7}:\d{1,7}$/.test(input.printTitles))
   )
     return false
+  for (const [key, max] of [
+    ['rowBreaks', 1_048_575],
+    ['colBreaks', 16_383],
+  ] as const) {
+    const value = input[key]
+    if (value === undefined) continue
+    if (!Array.isArray(value) || value.length > 1000) return false
+    if (!value.every((n) => isBoundedInt(n, 1, max))) return false
+  }
   return Object.keys(input).length > 1
 }
 

@@ -187,6 +187,34 @@ export const AGENT_TOOLS: AgentToolDef[] = [
     },
   },
   {
+    name: 'insert_caption',
+    description:
+      'Insert a numbered caption at the cursor — "Figure 1", "Table 2" and so on. The number is a SEQ field that continues the existing sequence for that label and renumbers itself in Word, which is the reason not to type the number as text. Use it after inserting a figure or table the user will refer to.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        label: {
+          type: 'string',
+          description: 'Sequence label, e.g. Figure, Table, Equation. Captions sharing a label share a numbering run.',
+        },
+        text: { type: 'string', description: 'Caption text after the number; optional' },
+      },
+      required: ['label'],
+    },
+  },
+  {
+    name: 'insert_index_entries',
+    description:
+      'Mark terms for the alphabetical index by inserting an XE field per term at the cursor. Terms are de-duplicated and sorted. The index itself is built by Word from these fields; this marks the entries, it does not print the index.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        terms: { type: 'array', items: { type: 'string' }, description: 'Terms to mark' },
+      },
+      required: ['terms'],
+    },
+  },
+  {
     name: 'read_raw_xml',
     description:
       "Read the document's underlying OOXML. Call with no argument to list the XML parts, which says for each whether a raw edit may write it; pass part to get one part's text. This is the escape hatch for settings no other tool models — anything the other tools do cover should go through them, because they keep the editor and the file in step.",
@@ -591,6 +619,10 @@ export interface DocExtras {
   /** insert a floating text box or preset shape at the cursor */
   insertTextbox(): void
   insertShape(preset: string): void
+  /** numbered caption ("Figure 3 — Revenue by region"); numbering continues the existing sequence */
+  insertCaption(label: string, text: string): { number: number; display: string }
+  /** one XE index-entry field per term, de-duplicated and sorted */
+  insertIndexEntries(terms: readonly string[]): string[]
   /** raw OOXML escape hatch; see packages/docx-engine/src/raw.ts for the gates */
   rawList(): Promise<readonly { path: string; ref?: string | undefined; writable: boolean }[]>
   rawRead(ref: string): Promise<{ ok: true; path: string; xml: string } | { ok: false; error: string }>
@@ -1160,6 +1192,29 @@ export function executeTool(
         return { output: `Deleted ${id}.`, mutated: true, summary: t('aiSumComments') }
       }
       return fail(call.name, `Unknown action "${action}"`)
+    }
+
+    case 'insert_caption': {
+      if (!extras) return fail(call.name, 'Captions are not available in this window')
+      const label = String(call.input.label ?? '').trim()
+      if (!label) return fail(call.name, 'label is required')
+      const text = typeof call.input.text === 'string' ? call.input.text : ''
+      const { display } = extras.insertCaption(label, text)
+      return { output: `Inserted caption "${display}".`, mutated: true, summary: t('aiSumCaption') }
+    }
+
+    case 'insert_index_entries': {
+      if (!extras) return fail(call.name, 'Index entries are not available in this window')
+      const raw = call.input.terms
+      if (!Array.isArray(raw) || raw.length === 0)
+        return fail(call.name, 'terms must be a non-empty array')
+      const added = extras.insertIndexEntries(raw.map((term) => String(term)))
+      if (added.length === 0) return fail(call.name, 'no usable terms after trimming')
+      return {
+        output: `Marked ${added.length} index ${added.length === 1 ? 'entry' : 'entries'}: ${added.join(', ')}.`,
+        mutated: true,
+        summary: t('aiSumIndexEntries'),
+      }
     }
 
     case 'insert_shape': {
