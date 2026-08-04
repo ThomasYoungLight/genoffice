@@ -71,6 +71,11 @@ function makeExtras() {
   }
   let seq = 0
   const extras: DocExtras = {
+    // the raw tools are covered against a real package in
+    // packages/docx-engine/tests/raw.test.ts; here they only have to exist
+    rawList: async () => [],
+    rawRead: async () => ({ ok: false, error: 'not wired in this stub' }),
+    rawEdit: async () => ({ ok: false, error: 'not wired in this stub' }),
     notes: (kind) => state[kind],
     addNote: (kind, text) => {
       const id = `n${++seq}`

@@ -132,6 +132,18 @@ export interface SaveOptions {
    */
   partXml?: Record<string, string>
   /**
+   * Raw OOXML overrides: parts written verbatim, entry name -> bytes.
+   *
+   * Distinct from `partXml`, which is the engine's own patched output (chart
+   * parts) and sits in the normal precedence order. These come from a user
+   * reaching past the model, so they are applied last and win over a part this
+   * save would otherwise regenerate — deterministic, and the raw tool says so.
+   * `word/document.xml` is never overridable: its body is rebuilt from the
+   * editor's blocks, so a raw write there would be discarded at save, which is
+   * the worst failure mode this feature could have.
+   */
+  partOverrides?: ReadonlyMap<string, Uint8Array>
+  /**
    * Replace whole zip parts with binary data (base64) — used to update
    * embedded xlsx workbooks alongside patched chart parts.
    * Only paths already present in the package are rewritten; unknown paths are
@@ -363,6 +375,7 @@ export async function saveDocx(
         fb.docxIndex === visibleOriginalOrder[i] &&
         fb.revision === undefined,
     ) &&
+    (options.partOverrides === undefined || options.partOverrides.size === 0) &&
     options.section === undefined &&
     options.sectionStartType === undefined &&
     options.pgNumType === undefined &&
@@ -1095,7 +1108,10 @@ export async function saveDocx(
     // old ink PNGs are re-emitted from options.inks; don't carry orphans over
     if (options.inks !== undefined && INK_MEDIA_PATH_RE.test(name)) continue
     const hfPart = hfParts.find((p) => p.path === name)
-    if (name === 'word/document.xml') {
+    const override = name === 'word/document.xml' ? undefined : options.partOverrides?.get(name)
+    if (override !== undefined) {
+      out.file(name, override, { date: entry.date })
+    } else if (name === 'word/document.xml') {
       out.file(name, newDocumentXml, { date: entry.date })
     } else if (hfPart) {
       out.file(name, hfPart.xml, { date: entry.date })

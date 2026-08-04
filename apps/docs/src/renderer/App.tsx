@@ -13,7 +13,11 @@ import {
   type CustomNumberingLevel,
   type DocProtection,
   type HeaderFooter,
+  editRawPart,
+  listRawParts,
   nextNoteId,
+  openRawPackage,
+  readRawPart,
   type NoteInfo,
   type SectionInfo,
   type SectionSettings,
@@ -407,6 +411,9 @@ export function App() {
   const [showStylesPanel, setShowStylesPanel] = useState(false)
   /** Style definitions pending write-back (key = styleId), saved via SaveOptions.styleUpserts */
   const [styleUpserts, setStyleUpserts] = useState<Record<string, StyleUpsert>>({})
+  // Raw OOXML edits accepted by the agent, applied verbatim at save. A ref,
+  // not state: nothing renders from it, so a re-render would buy nothing.
+  const rawOverridesRef = useRef<Map<string, Uint8Array>>(new Map())
   const [comments, setComments] = useState<CommentInfo[]>([])
   const [commentsDirty, setCommentsDirty] = useState(false)
   const [watermark, setWatermark] = useState<string | null>(null)
@@ -725,6 +732,7 @@ export function App() {
     numberingDirty,
     setPendingNumbering,
     styleUpserts,
+    rawOverrides: rawOverridesRef.current,
     setStyleUpserts,
     comments,
     commentsDirty,
@@ -1263,6 +1271,10 @@ export function App() {
 
   const extrasStateRef = useRef({ watermark, sources, header, footer, section, comments })
   extrasStateRef.current = { watermark, sources, header, footer, section, comments }
+  // the raw tools need the bytes the document was opened from, and the memo
+  // below must not re-create itself every time the document changes
+  const docBytesRef = useRef<Uint8Array | null>(null)
+  docBytesRef.current = doc?.parsed.internal.originalBytes ?? null
 
   /**
    * The agent's handle on the document parts that are not in the editor tree.
@@ -1333,6 +1345,36 @@ export function App() {
       },
       insertShape: (preset: string) => {
         if (editorRef.current) insertShapeAt(editorRef.current, preset)
+      },
+      // Raw OOXML runs against the bytes the document was opened from, with
+      // any already-accepted edits layered on, so a second edit to a part sees
+      // the first. Nothing is applied until save.
+      rawList: async () => {
+        const bytes = docBytesRef.current
+        if (!bytes) return []
+        return listRawParts(await openRawPackage(bytes))
+      },
+      rawRead: async (ref: string) => {
+        const bytes = docBytesRef.current
+        if (!bytes) return { ok: false as const, error: 'No document is open' }
+        const pending = rawOverridesRef.current
+        const zip = await openRawPackage(bytes)
+        const result = await readRawPart(zip, ref)
+        if (!result.ok) return result
+        const edited = pending.get(result.path)
+        return edited === undefined
+          ? result
+          : { ok: true as const, path: result.path, xml: new TextDecoder().decode(edited) }
+      },
+      rawEdit: async (ref: string, find: string, replace: string) => {
+        const bytes = docBytesRef.current
+        if (!bytes) return { ok: false as const, error: 'No document is open' }
+        const zip = await openRawPackage(bytes)
+        const result = await editRawPart(zip, bytes, ref, find, replace, rawOverridesRef.current)
+        if (!result.ok) return result
+        rawOverridesRef.current.set(result.path, result.bytes)
+        dirtyRef.current = true
+        return { ok: true as const, path: result.path }
       },
     }),
     [],

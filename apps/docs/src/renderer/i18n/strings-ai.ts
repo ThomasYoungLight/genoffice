@@ -92,6 +92,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: '分页符',
     aiSumComments: '批注',
     aiSumShape: '形状',
+    aiSumRawXml: '原始 XML',
+    aiSumRawXmlEdit: '编辑原始 XML',
     aiSumSources: '参考文献来源',
     aiCmdNone: '没有命中需要修改的块,文档未改动。',
     aiCmdNoneSkipped:
@@ -203,6 +205,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: 'Page break',
     aiSumComments: 'Comments',
     aiSumShape: 'Shape',
+    aiSumRawXml: 'Raw XML',
+    aiSumRawXmlEdit: 'Edit raw XML',
     aiSumSources: 'Bibliography sources',
     aiCmdNone: 'No matching blocks; the document was not changed.',
     aiCmdNoneSkipped:
@@ -314,6 +318,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: '改ページ',
     aiSumComments: 'コメント',
     aiSumShape: '図形',
+    aiSumRawXml: '生 XML',
+    aiSumRawXmlEdit: '生 XML を編集',
     aiSumSources: '参考文献ソース',
     aiCmdNone: '変更対象のブロックが見つからなかったため、文書は変更されていません。',
     aiCmdNoneSkipped:
@@ -425,6 +431,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: '페이지 나누기',
     aiSumComments: '메모',
     aiSumShape: '도형',
+    aiSumRawXml: '원본 XML',
+    aiSumRawXmlEdit: '원본 XML 편집',
     aiSumSources: '참고 문헌 원본',
     aiCmdNone: '수정할 블록이 없어 문서가 변경되지 않았습니다.',
     aiCmdNoneSkipped:
@@ -538,6 +546,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: 'Saut de page',
     aiSumComments: 'Commentaires',
     aiSumShape: 'Forme',
+    aiSumRawXml: 'XML brut',
+    aiSumRawXmlEdit: 'Modifier le XML brut',
     aiSumSources: 'Sources bibliographiques',
     aiCmdNone: "Aucun bloc correspondant ; le document n'a pas été modifié.",
     aiCmdNoneSkipped:
@@ -650,6 +660,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: 'Seitenumbruch',
     aiSumComments: 'Kommentare',
     aiSumShape: 'Form',
+    aiSumRawXml: 'Rohes XML',
+    aiSumRawXmlEdit: 'Rohes XML bearbeiten',
     aiSumSources: 'Literaturquellen',
     aiCmdNone: 'Keine passenden Blöcke gefunden; das Dokument wurde nicht geändert.',
     aiCmdNoneSkipped:
@@ -761,6 +773,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: 'Salto de página',
     aiSumComments: 'Comentarios',
     aiSumShape: 'Forma',
+    aiSumRawXml: 'XML sin procesar',
+    aiSumRawXmlEdit: 'Editar XML sin procesar',
     aiSumSources: 'Fuentes bibliográficas',
     aiCmdNone: 'No hay bloques coincidentes; el documento no se modificó.',
     aiCmdNoneSkipped:
@@ -872,6 +886,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: 'ตัวแบ่งหน้า',
     aiSumComments: 'ข้อคิดเห็น',
     aiSumShape: 'รูปร่าง',
+    aiSumRawXml: 'XML ดิบ',
+    aiSumRawXmlEdit: 'แก้ไข XML ดิบ',
     aiSumSources: 'แหล่งข้อมูลบรรณานุกรม',
     aiCmdNone: 'ไม่พบบล็อกที่ต้องแก้ไข เอกสารไม่มีการเปลี่ยนแปลง',
     aiCmdNoneSkipped:
@@ -983,6 +999,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: 'Pemisah halaman',
     aiSumComments: 'Komentar',
     aiSumShape: 'Bentuk',
+    aiSumRawXml: 'XML mentah',
+    aiSumRawXmlEdit: 'Edit XML mentah',
     aiSumSources: 'Sumber bibliografi',
     aiCmdNone: 'Tidak ada blok yang cocok; dokumen tidak diubah.',
     aiCmdNoneSkipped:
@@ -1094,6 +1112,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: 'Разрыв страницы',
     aiSumComments: 'Примечания',
     aiSumShape: 'Фигура',
+    aiSumRawXml: 'Исходный XML',
+    aiSumRawXmlEdit: 'Правка исходного XML',
     aiSumSources: 'Библиографические источники',
     aiCmdNone: 'Подходящих блоков не найдено; документ не изменен.',
     aiCmdNoneSkipped:
@@ -1205,6 +1225,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: 'فاصل صفحات',
     aiSumComments: 'التعليقات',
     aiSumShape: 'شكل',
+    aiSumRawXml: 'XML الخام',
+    aiSumRawXmlEdit: 'تحرير XML الخام',
     aiSumSources: 'مصادر المراجع',
     aiCmdNone: 'لا توجد كتل مطابقة؛ لم يتغير المستند.',
     aiCmdNoneSkipped:
@@ -1316,6 +1338,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: 'Quebra de página',
     aiSumComments: 'Comentários',
     aiSumShape: 'Forma',
+    aiSumRawXml: 'XML bruto',
+    aiSumRawXmlEdit: 'Editar XML bruto',
     aiSumSources: 'Fontes bibliográficas',
     aiCmdNone: 'Nenhum bloco correspondente; o documento não foi alterado.',
     aiCmdNoneSkipped:
@@ -1430,6 +1454,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: 'Interruzione di pagina',
     aiSumComments: 'Commenti',
     aiSumShape: 'Forma',
+    aiSumRawXml: 'XML grezzo',
+    aiSumRawXmlEdit: 'Modifica XML grezzo',
     aiSumSources: 'Fonti bibliografiche',
     aiCmdNone: 'Nessun blocco corrispondente; il documento non è stato modificato.',
     aiCmdNoneSkipped:
@@ -1541,6 +1567,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: 'Podział strony',
     aiSumComments: 'Komentarze',
     aiSumShape: 'Kształt',
+    aiSumRawXml: 'Surowy XML',
+    aiSumRawXmlEdit: 'Edycja surowego XML',
     aiSumSources: 'Źródła bibliograficzne',
     aiCmdNone: 'Brak pasujących bloków; dokument nie został zmieniony.',
     aiCmdNoneSkipped:
@@ -1652,6 +1680,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: 'Pagina-einde',
     aiSumComments: 'Opmerkingen',
     aiSumShape: 'Vorm',
+    aiSumRawXml: 'Ruwe XML',
+    aiSumRawXmlEdit: 'Ruwe XML bewerken',
     aiSumSources: 'Bibliografiebronnen',
     aiCmdNone: 'Geen overeenkomende blokken; het document is niet gewijzigd.',
     aiCmdNoneSkipped:
@@ -1763,6 +1793,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: 'Pemisah halaman',
     aiSumComments: 'Komen',
     aiSumShape: 'Bentuk',
+    aiSumRawXml: 'XML mentah',
+    aiSumRawXmlEdit: 'Edit XML mentah',
     aiSumSources: 'Sumber bibliografi',
     aiCmdNone: 'Tiada blok sepadan; dokumen tidak diubah.',
     aiCmdNoneSkipped:
@@ -1874,6 +1906,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: 'מעבר עמוד',
     aiSumComments: 'הערות',
     aiSumShape: 'צורה',
+    aiSumRawXml: 'XML גולמי',
+    aiSumRawXmlEdit: 'עריכת XML גולמי',
     aiSumSources: 'מקורות ביבליוגרפיים',
     aiCmdNone: 'לא נמצאו בלוקים מתאימים; המסמך לא שונה.',
     aiCmdNoneSkipped:
@@ -1985,6 +2019,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: 'पृष्ठ विराम',
     aiSumComments: 'टिप्पणियाँ',
     aiSumShape: 'आकार',
+    aiSumRawXml: 'कच्चा XML',
+    aiSumRawXmlEdit: 'कच्चा XML संपादित करें',
     aiSumSources: 'ग्रंथसूची स्रोत',
     aiCmdNone: 'कोई मेल खाता ब्लॉक नहीं; दस्तावेज़ में बदलाव नहीं हुआ।',
     aiCmdNoneSkipped:
@@ -2094,6 +2130,8 @@ export const aiStrings = defineStrings({
     aiSumPageBreak: '分頁符號',
     aiSumComments: '註解',
     aiSumShape: '圖形',
+    aiSumRawXml: '原始 XML',
+    aiSumRawXmlEdit: '編輯原始 XML',
     aiSumSources: '參考文獻來源',
     aiCmdNone: '沒有命中需要修改的區塊,文件未變更。',
     aiCmdNoneSkipped:

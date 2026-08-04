@@ -187,6 +187,36 @@ export const AGENT_TOOLS: AgentToolDef[] = [
     },
   },
   {
+    name: 'read_raw_xml',
+    description:
+      "Read the document's underlying OOXML. Call with no argument to list the XML parts, which says for each whether a raw edit may write it; pass part to get one part's text. This is the escape hatch for settings no other tool models — anything the other tools do cover should go through them, because they keep the editor and the file in step.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        part: {
+          type: 'string',
+          description:
+            'Short name (/document, /styles, /numbering, /settings, /theme, /contentTypes, /header[N], /footer[N]) or a literal entry name',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'edit_raw_xml',
+    description:
+      'Replace one exact occurrence of find with replace inside an OOXML part. find must match exactly once — include surrounding text to make it unique. The edit is refused if the result is not well-formed XML or the document stops parsing, and it is applied to the file when the document is saved. word/document.xml cannot be written: its body is rebuilt from the editor when saving, so use apply_commands or replace_blocks for body content. A raw edit wins over a change to the same part made through the other tools in the same save. Say what you changed and why in your reply — nothing else records it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        part: { type: 'string', description: 'Short name or literal entry name, as read_raw_xml lists' },
+        find: { type: 'string', description: 'Exact text to replace; must occur exactly once' },
+        replace: { type: 'string', description: 'Replacement text; empty string deletes the match' },
+      },
+      required: ['part', 'find', 'replace'],
+    },
+  },
+  {
     name: 'web_search',
     description:
       'Search the web for textual information (references/data/facts). Use when you need up-to-date information or are unsure about a fact. Returns titles/links/snippets.',
@@ -561,6 +591,14 @@ export interface DocExtras {
   /** insert a floating text box or preset shape at the cursor */
   insertTextbox(): void
   insertShape(preset: string): void
+  /** raw OOXML escape hatch; see packages/docx-engine/src/raw.ts for the gates */
+  rawList(): Promise<readonly { path: string; ref?: string | undefined; writable: boolean }[]>
+  rawRead(ref: string): Promise<{ ok: true; path: string; xml: string } | { ok: false; error: string }>
+  rawEdit(
+    ref: string,
+    find: string,
+    replace: string,
+  ): Promise<{ ok: true; path: string } | { ok: false; error: string }>
 }
 
 export type NoteKind = 'footnote' | 'endnote'
@@ -578,6 +616,46 @@ const PAGE_SIZES: Record<string, { w: number; h: number }> = {
   tabloid: { w: 15840, h: 24480 },
 }
 
+/// Raw OOXML tools. Async because the gates rebuild and re-parse the package;
+/// they join the same Promise branch the search and image tools use.
+async function executeRawTool(call: AgentToolCall, extras: DocExtras): Promise<ToolExecution> {
+  if (call.name === 'read_raw_xml') {
+if (!extras) return fail(call.name, 'Raw XML is not available in this window')
+    const ref = typeof call.input.part === 'string' ? call.input.part.trim() : ''
+    if (!ref) {
+      const parts = await extras.rawList()
+      const list = parts
+        .map((p) => `${p.ref ? `${p.ref}  ` : ''}${p.path}${p.writable ? '' : '  (read-only)'}`)
+        .join('\n')
+      return {
+        output: `${parts.length} XML parts:\n${list}`,
+        mutated: false,
+        summary: t('aiSumRawXml'),
+      }
+    }
+    const result = await extras.rawRead(ref)
+    if (!result.ok) return fail(call.name, result.error)
+    return { output: `${result.path}:\n${result.xml}`, mutated: false, summary: t('aiSumRawXml') }
+    
+  }
+  {
+if (!extras) return fail(call.name, 'Raw XML is not available in this window')
+    const ref = typeof call.input.part === 'string' ? call.input.part.trim() : ''
+    const find = typeof call.input.find === 'string' ? call.input.find : ''
+    const replace = typeof call.input.replace === 'string' ? call.input.replace : ''
+    if (!ref) return fail(call.name, 'part is required')
+    if (!find) return fail(call.name, 'find must not be empty')
+    const result = await extras.rawEdit(ref, find, replace)
+    if (!result.ok) return fail(call.name, result.error)
+    return {
+      output: `Edited ${result.path}. It is applied when the document is saved; the editor view does not change.`,
+      mutated: true,
+      summary: t('aiSumRawXmlEdit'),
+    }
+    
+  }
+}
+
 export function executeTool(
   editor: Editor,
   call: AgentToolCall,
@@ -593,6 +671,10 @@ export function executeTool(
     call.name === 'generate_image'
   ) {
     return executeAsyncTool(editor, call)
+  }
+  if (call.name === 'read_raw_xml' || call.name === 'edit_raw_xml') {
+    if (!extras) return fail(call.name, 'Raw XML is not available in this window')
+    return executeRawTool(call, extras)
   }
   switch (call.name) {
     case 'get_document_context':

@@ -117,6 +117,10 @@ export interface FileActionContext {
   setPendingNumbering: (value: PendingNumbering) => void
   styleUpserts: Record<string, StyleUpsert>
   setStyleUpserts: (value: Record<string, StyleUpsert>) => void
+  /// Accepted raw OOXML edits, entry name -> bytes, written verbatim at save.
+  /// A Map rather than a piece of React state: it is written by the raw tool
+  /// and read only here, so re-rendering on a change would buy nothing.
+  rawOverrides: Map<string, Uint8Array>
   comments: CommentInfo[]
   commentsDirty: boolean
   setComments: (value: CommentInfo[]) => void
@@ -433,6 +437,8 @@ export async function buildDocBytes(ctx: FileActionContext): Promise<Uint8Array 
     titlePg: ctx.titlePgDirty ? ctx.titlePg : undefined,
     evenAndOddHeaders: ctx.evenOddHfDirty ? ctx.evenOddHf : undefined,
     partXml: Object.keys(partXml).length > 0 ? partXml : undefined,
+    // raw edits already passed their gates when they were accepted
+    partOverrides: ctx.rawOverrides.size > 0 ? ctx.rawOverrides : undefined,
     partBinary: Object.keys(partBinary).length > 0 ? partBinary : undefined,
     comments: ctx.commentsDirty ? ctx.comments : undefined,
     protection: ctx.protectionDirty ? ctx.protection : undefined,

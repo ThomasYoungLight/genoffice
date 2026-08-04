@@ -21,7 +21,7 @@ cannot do.
 
 | #   | Item                                   | Blocked on                              |
 | --- | -------------------------------------- | --------------------------------------- |
-| 1   | Raw OOXML for docs (sheets: **done**)  | save-path design, per format            |
+| ~~1~~ | ~~Raw OOXML for docs and sheets~~    | **Done** for both formats               |
 | 2   | Sheets slicers, page breaks, rich text | new engine + sidecar support            |
 | 3   | Docs caption and index fields          | nothing; small                          |
 | 4   | OLE, Zoom links, threaded comments, …  | nothing; low value (recommend: decline) |
@@ -566,14 +566,40 @@ intact, the schema is strict so a misspelled flag is refused rather than
 silently rendering plain, and Excel shows all four runs — green bold, red italic
 underlined — with no repair prompt.
 
-### Step 3 — Docs raw (medium)
+### ~~Step 3 — Docs raw (medium)~~ — done
 
-`SaveOptions.partOverrides` first, then the tools, with document.xml writes
-refused and the refusal naming the tool that owns the change.
+`SaveOptions.partOverrides` writes parts verbatim, applied last in the output
+loop so a raw edit beats a part the same save would otherwise regenerate; it
+also had to be added to the "nothing changed, return the original bytes" guard,
+or a save carrying only a raw edit was a no-op. `word/document.xml` is excluded
+there as well as refused at the tool, so a caller reaching `saveDocx` directly
+cannot corrupt itself either — there is a test for exactly that.
 
-**Done when:** a styles.xml edit survives save/reopen and opens in Word, a
-document.xml write is refused with a useful message, and a corrupting edit rolls
-back.
+`packages/docx-engine/src/raw.ts` holds the gates. Three are the slides ones.
+The fourth is stronger than the slides version by necessity: there are no
+"affected slides" to re-parse, so the candidate package is rebuilt with the edit
+in place and run through `parseDocx` whole. Nothing mutates in place, so a
+rejected edit leaves the caller untouched by construction rather than by
+remembering to roll back.
+
+The refusal that has no counterpart in slides: **the body is readable but not
+writable.** `saveDocx` rebuilds `word/document.xml` from the editor's blocks, so
+bytes written there would be silently discarded — the tool would report success
+and change nothing, which is worse than saying no. The message names
+`apply_commands` and `replace_blocks` as the tools that do own body content.
+Writes are limited to styles, numbering, settings, theme, headers, footers,
+content types and the document rels; reads are unrestricted, because reading the
+body is how you work out what to change elsewhere.
+
+No IPC was needed. Unlike sheets, the docx save runs in the renderer against
+`parsed.internal.originalBytes`, so the tools call the engine directly and the
+accepted edits live in a ref beside the other pending save state.
+
+**Done:** a settings.xml edit survives the save, a document.xml write is refused
+with a message naming the right tools, a corrupting edit is discarded, and Word
+opens the result with no repair prompt — then **re-saves it with the raw setting
+still in place**, which is the part that proves Word parsed the edit rather than
+merely tolerating it.
 
 ### Step 4 — Sheets page breaks, docs caption/index (small)
 

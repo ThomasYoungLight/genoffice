@@ -89,3 +89,14 @@ export { readThemeColors, readThemeFonts } from './theme'
 export { hashProtectionPassword, verifyProtectionPassword } from './protection'
 export { decodeSymbolChar, decodeSymbolText, isSymbolFont } from './symbol-fonts'
 export { wordTimestamp } from './xml-utils'
+export {
+  RAW_BODY_PART,
+  RAW_MAX_PART_BYTES,
+  editRawPart,
+  isRawWritable,
+  listRawParts,
+  openRawPackage,
+  readRawPart,
+  resolveRawPartPath,
+  type RawPartInfo,
+} from './raw'
