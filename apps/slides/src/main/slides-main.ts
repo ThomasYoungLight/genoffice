@@ -1594,6 +1594,7 @@ export function registerSlidesIpc(): void {
       offset: { x: toEmu(op.xPx), y: toEmu(op.yPx), cx: toEmu(op.wPx), cy: toEmu(op.hPx) },
       ...(paragraphs ? { paragraphs } : {}),
       ...(op.fillColor ? { fillColor: op.fillColor } : {}),
+      ...(op.anchor ? { anchor: op.anchor } : {}),
       ...(op.stroke
         ? {
             stroke: {

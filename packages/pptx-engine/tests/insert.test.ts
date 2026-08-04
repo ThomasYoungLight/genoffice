@@ -82,6 +82,40 @@ describe('add/delete element', () => {
     expect(reopened.deck.slides[0]!.elements.length).toBe(before - 1)
   })
 
+  /**
+   * The OOXML default for a text body is top. That is right for a text box and
+   * wrong for a labelled shape — a flowchart node drawn without this had its
+   * caption pinned to the top edge of the box in PowerPoint.
+   */
+  it('anchors shape text where the caller asks, and leaves it alone otherwise', async () => {
+    const opened = await openPptx(fx('01_standard_business.pptx'))
+    const slide = opened.deck.slides[0]!
+    const xmlOf = (el: { anchor: { originalXml: string } }) => el.anchor.originalXml
+
+    const middle = addElement(slide, { kind: 'rect', offset: OFF, anchor: 'middle' })
+    expect(xmlOf(middle)).toContain('anchor="ctr"')
+    const bottom = addElement(slide, { kind: 'rect', offset: OFF, anchor: 'bottom' })
+    expect(xmlOf(bottom)).toContain('anchor="b"')
+
+    // no anchor asked for, none written — a text box must stay top-aligned
+    const plain = addElement(slide, { kind: 'textbox', offset: OFF })
+    expect(xmlOf(plain)).not.toContain('anchor=')
+  })
+
+  it('an anchored shape survives save and reopen', async () => {
+    const opened = await openPptx(fx('01_standard_business.pptx'))
+    addElement(opened.deck.slides[0]!, {
+      kind: 'diamond',
+      offset: OFF,
+      anchor: 'middle',
+      paragraphs: [{ runs: [{ text: 'Approved?' }] }],
+    })
+    const reopened = await openPptx(await savePptx(opened))
+    const xml = reopened.deck.slides[0]!.elements.map((e) => e.anchor.originalXml).join('')
+    expect(xml).toContain('anchor="ctr"')
+    expect(xml).toContain('Approved?')
+  })
+
   it('delete-only edit still marks the deck dirty for save', async () => {
     const opened = await openPptx(fx('01_standard_business.pptx'))
     const slide = opened.deck.slides[0]!

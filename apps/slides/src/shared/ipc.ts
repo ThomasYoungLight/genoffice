@@ -304,6 +304,8 @@ export interface AddElementOp {
   fillColor?: string
   /** Shape stroke (solid color + point width) */
   stroke?: { color: string; widthPt: number }
+  /** Vertical placement of the text; omitted leaves it top-aligned */
+  anchor?: 'top' | 'middle' | 'bottom'
 }
 
 export interface DeleteElementOp {

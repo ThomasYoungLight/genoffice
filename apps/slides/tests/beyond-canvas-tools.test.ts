@@ -378,6 +378,18 @@ describe('insert_diagram', () => {
     expect(calls.filter((k: string) => k === 'lineArrow')).toHaveLength(2)
   })
 
+  it('centres the caption in each node box', async () => {
+    // the OOXML default is top, which left every label hugging the top edge of
+    // its box — visible in PowerPoint, invisible to a test that only counts shapes
+    await run('insert_diagram', { slideIndex: 0, mermaid: 'flowchart TD; A[Submit] --> B[Ship]' })
+    const calls = (window as any).slidesApi.addElement.mock.calls.map((c: any[]) => c[0])
+    for (const op of calls.filter((o: any) => o.kind !== 'lineArrow'))
+      expect(op.anchor).toBe('middle')
+    // an arrow has no text, so it has no business carrying an anchor
+    for (const op of calls.filter((o: any) => o.kind === 'lineArrow'))
+      expect(op.anchor).toBeUndefined()
+  })
+
   it('flips an arrow that runs backwards inside its own box', async () => {
     // two children: the left one is reached by a right-to-left arrow
     await run('insert_diagram', { slideIndex: 0, mermaid: 'flowchart TD; A --> B; A --> C' })

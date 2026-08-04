@@ -250,7 +250,7 @@ fragile the markup is, not by how recently it shipped:
 | ~~5~~    | ~~pptx sections and comments~~                     | `cea0bd3`            | **Done.** Sections correct; comment badges all stacked and timestamps were 8 hours out          |
 | ~~6~~    | ~~Docs comments, text boxes, shapes~~              | `e113810`            | **Done.** All three correct; `w:date` was true UTC where Word wants local digits                |
 | ~~7~~    | ~~Header/footer, both formats~~                    | `9e0dd02`, `31f9b34` | **Done.** Output right in both; a partial update silently deleted the untouched fields          |
-| 8        | Mermaid flowcharts as native shapes                | `76b7678`            | Plain preset geometry; lowest risk of the set                                                   |
+| ~~8~~    | ~~Mermaid flowcharts as native shapes~~            | `76b7678`            | **Done.** Graph, shapes and arrow directions all correct; node captions were pinned to the top  |
 
 ### Step 0 results
 
@@ -444,6 +444,35 @@ boundary is where an invariant goes to die: both halves were self-consistent and
 the contract between them was wrong. The new tests live in the engine, where the
 clearing behaviour actually is, and one of them asserts that behaviour directly
 so the reason `mergeHeaderFooter` exists cannot quietly stop being true.
+
+**Row 8 — Mermaid flowcharts: one cosmetic bug, fixed. Sweep complete.**
+
+The hard parts are right. `flowchart TD` with a decision branch and a join
+parses to the expected graph, the decision node is a diamond and the rest are
+rectangles, longest-path ranking puts the join below both branches, and — the
+part the original commit flagged as needing care — **all five arrowheads point
+at their target**, including the two right-to-left edges that depend on the
+`flipH` the layout records. No repair prompt.
+
+The bug: every node caption sat against the top edge of its box.
+`buildSpXml` emitted `<a:bodyPr wrap="square" rtlCol="0"/>` with no `anchor`,
+and the OOXML default is top. Correct for a text box, wrong for a labelled
+shape. `NewElementOptions.anchor` now carries it through `AddElementOp`, and
+`insert_diagram` asks for `middle`; re-rendered, the captions sit in the middle
+of their boxes.
+
+Two things deliberately not done. The default for `addElement` is unchanged —
+centring every added autoshape may well be right, but I could not get Word or
+PowerPoint to author a comparable shape for me to measure, and this sweep has
+already produced three markup guesses that a screenshot refuted. Better a narrow
+fix the diagram owns than a broad one resting on an assumption. And the existing
+tool already reports undrawn arrow labels rather than dropping them, which is
+the honest behaviour; drawing them is a layout problem, not a bug.
+
+An observation: the diagram lands in a fixed content area and does not avoid
+existing content, so inserting one onto a slide that already has body text
+overlaps it. The tool takes explicit `x`/`y`/`w`/`h`, so the caller can place it;
+nothing about the file is wrong.
 
 A methodology note to go with row 1's: **rebuild before you conclude.** A "no
 fill" screenshot sent me chasing the dxf markup, and a controlled pair differing

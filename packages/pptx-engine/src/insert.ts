@@ -31,6 +31,12 @@ export interface NewElementOptions {
   /** Shape stroke (solid color, width in EMU) */
   stroke?: { color: string; widthEmu: number }
   /**
+   * Vertical placement of the text in the shape. Omitted leaves it at the
+   * OOXML default, top — right for a text box, wrong for a labelled shape,
+   * where the caption otherwise hugs the top edge.
+   */
+  anchor?: 'top' | 'middle' | 'bottom'
+  /**
    * Ready-made `<a:p>` markup, used instead of generating paragraphs from
    * `paragraphs`. An equation is the case that needs it: its paragraph carries
    * an mc:AlternateContent block that the run model cannot express. When set,
@@ -117,6 +123,8 @@ export function buildSpXml(slide: Slide, opts: NewElementOptions): string {
   const ln = opts.stroke
     ? `<a:ln w="${Math.round(opts.stroke.widthEmu)}"><a:solidFill><a:srgbClr val="${opts.stroke.color.replace(/^#/, '').slice(0, 6).toUpperCase()}"/></a:solidFill></a:ln>`
     : ''
+  const anchorAttr =
+    opts.anchor === 'middle' ? ' anchor="ctr"' : opts.anchor === 'bottom' ? ' anchor="b"' : ''
   const paras =
     opts.rawParagraphsXml ??
     (opts.paragraphs?.length ? opts.paragraphs : [{ runs: [{ text: '' }] }])
@@ -126,7 +134,7 @@ export function buildSpXml(slide: Slide, opts: NewElementOptions): string {
     `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${escapeXmlAttr(name)}"/>` +
     `<p:cNvSpPr${isTextbox ? ' txBox="1"' : ''}/><p:nvPr/></p:nvSpPr>` +
     `<p:spPr>${xfrm}${geom}${fill}${ln}</p:spPr>` +
-    `<p:txBody><a:bodyPr wrap="square" rtlCol="0"/><a:lstStyle/>${paras}</p:txBody></p:sp>`
+    `<p:txBody><a:bodyPr wrap="square" rtlCol="0"${anchorAttr}/><a:lstStyle/>${paras}</p:txBody></p:sp>`
   )
 }
 

@@ -3865,6 +3865,9 @@ async function executeTool(
           hPx: node.h,
           fitWidthPx: access.fitWidthPx,
           paragraphs: [{ runs: [{ text: node.text, fontSize: 14 }], align: 'center' as const }],
+          // a node caption belongs in the middle of its box; the OOXML default
+          // is top, which leaves every label hugging the top edge
+          anchor: 'middle' as const,
           fillColor: '#EEF2FB',
         })
         if (!r) return fail(t('aiFailDiagram'), `Could not draw node ${node.id}`)
