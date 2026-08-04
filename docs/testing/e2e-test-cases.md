@@ -19,6 +19,33 @@ way, it is, and the case says so.
 records the exact commands and the fixture that produces it, so a re-run is
 mechanical rather than a fresh investigation.
 
+## Automated end-to-end runs
+
+`npm run test:e2e -w @genoffice/sheets` launches the built app under Playwright
+and drives it the way a user does. It is deliberately outside `npm test`: it
+needs `npm run build` and the Rust sidecar, it takes tens of seconds per file
+rather than milliseconds, and it produces no coverage.
+
+Three rules keep these honest.
+
+**Read the result with something that is not ours.** Every assertion about a
+saved file goes through openpyxl, so a bug that writes and reads the same wrong
+bytes cannot pass. Excel is still the final authority and still manual.
+
+**Write the fixtures with openpyxl, not Excel.** Two of the three real bugs
+this project has hit only exist in files Excel did not write — a `oneCellAnchor`
+whose size lives in `<ext>`, and drawing XML with no `xdr:` prefix. An
+Excel-authored fixture misses both.
+
+**Never touch the developer's own state.** Each run gets a private
+`--user-data-dir`, so it cannot read real settings and cannot offer to recover
+real unsaved work.
+
+| file | cases | covers |
+| ---- | ----- | ------ |
+| `tests-e2e/workbook-roundtrip.e2e.ts` | 7 | E1: open, edit, save, reopen, package integrity |
+| `tests-e2e/onecell-anchor.e2e.ts` | 6 | E3/E4: `oneCellAnchor` size, drag, save, reopen |
+
 ## Fixture builders
 
 Fixtures are generated, never committed as binaries, so what they contain is
@@ -212,10 +239,10 @@ Automated results are from `npx vitest run --root apps/sheets`.
 
 | case | result | evidence |
 | ---- | ------ | -------- |
-| E1 workbook opens, renders, saves without repair | **partial** | verified with a *visual* edit, not a cell edit: `onecell.xlsx` had its picture moved, saved from the app, reopened in Excel with no repair prompt and the chart untouched. The cell-edit path is covered only by the automated save tests; the Excel half of it has not been run |
+| E1 workbook opens, renders, saves without repair | **pass (automated)** | `workbook-roundtrip.e2e.ts`, 7 cases: the app opens the file, a cell is typed through the real UI, the save is confirmed by openpyxl, untouched cells are proved untouched, and the package is checked for missing parts and undeclared content types. The Excel-repair half remains manual — the automated check tests the three faults that provoke a repair prompt, which is necessary, not sufficient |
 | E2 visuals reach print/PDF | **pass** | chart, image and a diamond shape inserted in-app all present in the exported PDF, over the right cells, no handles or delete buttons |
-| E3 oneCellAnchor sizes correctly | **pass** | same file in GenOffice and Excel both span chart D2:H12, image D16:E19; PDF matches |
-| E4 move/resize round trip | **pass** | picture dragged and resized, saved, opened in Excel: no repair, position and size held, still a `oneCellAnchor`, no `<to>`, no stray `xdr:` |
+| E3 oneCellAnchor sizes correctly | **pass (automated)** | `onecell-anchor.e2e.ts`: the rendered picture is 240x160 +/-12px with the source aspect ratio, against an openpyxl-written `oneCellAnchor`. Also verified by hand in Excel: chart D2:H12, image D16:E19, PDF matches |
+| E4 move/resize round trip | **pass (automated)** | `onecell-anchor.e2e.ts`: the picture is dragged with real mouse events, saved, and read back by openpyxl — still a `OneCellAnchor`, moved past D4, `ext` unchanged at 2286000x1524000, package clean, and the same size again on reopen. Also verified by hand in Excel: no repair, no `<to>`, no stray `xdr:` |
 | E5 conditional formatting fidelity | **pass (records a known gap)** | colour scale and `cellIs` fill print; **data bars and icon sets do not** |
 | E6 agent sees what it built | **blocked** | no provider key in the `GenOffice Sheets` userData; `loop.test.ts` covers the image-delivery half |
 | E7 raw OOXML gates | **pass** | automated, `xlsx-raw.test.ts` |
