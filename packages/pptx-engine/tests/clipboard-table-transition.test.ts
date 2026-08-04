@@ -155,9 +155,9 @@ describe('editTableCellText', () => {
     const slide = r.slide
     const tblId = r.elementId
 
-    expect(editTableCellText(slide, tblId, 0, 1, [{ runs: [{ text: 'Header B', bold: true }] }])).toBe(
-      true,
-    )
+    expect(
+      editTableCellText(slide, tblId, 0, 1, [{ runs: [{ text: 'Header B', bold: true }] }]),
+    ).toBe(true)
     expect(editTableCellText(slide, tblId, 1, 0, [{ runs: [{ text: 'data' }] }])).toBe(true)
     // Out of range rejected
     expect(editTableCellText(slide, tblId, 5, 0, [{ runs: [{ text: 'x' }] }])).toBe(false)
@@ -330,6 +330,16 @@ describe('slide transitions', () => {
       '<mc:Fallback><p:transition spd="slow"><p:fade/></p:transition></mc:Fallback>',
     )
     expect(slide.bodySuffix).toContain('Requires="p159"')
+    /**
+     * The namespace URI, not just the prefix. This test asserted the shape of
+     * the markup and passed for as long as the URI was wrong by one path
+     * segment (.../2015/main instead of .../2015/09/main), which PowerPoint
+     * answers by matching no Choice, taking no Fallback either, and showing
+     * the slide as having no transition at all.
+     */
+    expect(slide.bodySuffix).toContain(
+      'xmlns:p159="http://schemas.microsoft.com/office/powerpoint/2015/09/main"',
+    )
 
     // Lossless across save/reopen
     const reopened = await openPptx(await savePptx(opened))

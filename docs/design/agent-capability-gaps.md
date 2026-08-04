@@ -243,7 +243,7 @@ fragile the markup is, not by how recently it shipped:
 
 | Priority | Feature                                        | Commit               | Why it is first                                                                                                                                            |
 | -------- | ---------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1        | Slide transitions and animations               | `4575901`            | Timing XML is the easiest thing in pptx to get subtly wrong                                                                                                |
+| ~~1~~    | ~~Slide transitions and animations~~           | `4575901`            | **Done.** Animations pass; morph was broken by a wrong namespace URI, now fixed                                                                            |
 | 2        | Sheets icon-set / aboveAverage / timePeriod CF | `cea0bd3`            | Icon order is inverted between Univer and the file, decided by a `reverse` flag — the wrong icons on the right values would look plausible in our own grid |
 | 3        | Docs formulas in Word                          | `9b4ec40`            | Same converter as the slide bug — directly implicated                                                                                                      |
 | 4        | The five added chart types                     | `e54265a`            | scatter, radar and comboBarLine build chart XML we had not before                                                                                          |
@@ -251,6 +251,32 @@ fragile the markup is, not by how recently it shipped:
 | 6        | Docs comments, text boxes, shapes              | `e113810`            | Floating anchors and a comment part                                                                                                                        |
 | 7        | Header/footer, both formats                    | `9e0dd02`, `31f9b34` | Placeholder fields repeated across every page/slide                                                                                                        |
 | 8        | Mermaid flowcharts as native shapes            | `76b7678`            | Plain preset geometry; lowest risk of the set                                                                                                              |
+
+### Step 0 results
+
+**Row 1 — animations and transitions: one bug, fixed.**
+
+Passing: all four animation classes (entrance, emphasis, exit, motion path),
+their triggers grouped correctly in PowerPoint's Animation Pane, the motion path
+drawn on the canvas, and the `push` and `dissolve` transitions.
+
+Failing: `morph`. We wrote the 2015 extension namespace as
+`.../powerpoint/2015/main`; PowerPoint's is `.../powerpoint/2015/09/main`. One
+missing path segment, and the symptom is not a broken file — PowerPoint matches
+no `mc:Choice`, declines the `mc:Fallback` as well, and reports the slide as
+having no transition at all. The existing test asserted `<p159:morph`,
+`Requires="p159"` and the fallback markup, every one of which was correct. It
+never asserted the URI. It does now.
+
+Two methodology notes for the remaining rows, both learned the hard way:
+
+- **The accessibility tree's "Has Transition" description does not report
+  morph** — not for our file, and not for one PowerPoint wrote itself. Read the
+  Transitions ribbon's highlighted button, after confirming from the status bar
+  which slide is actually selected.
+- **Saving via AppleScript dropped the morph child element**, producing a
+  reference sample that looked authoritative and was not. Use ⌘S. A good while
+  went into diagnosing a file PowerPoint had quietly degraded on the way out.
 
 Row 2 was first written down on a guess — that icon sets need an `x14`
 extension block. They do not, here: `xlsx-cf.ts` writes plain OOXML and refuses

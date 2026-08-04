@@ -428,7 +428,8 @@ function buildRPrAttrs(run: TextRun): string {
   if (run.fontSize != null && !run.fontSizeImplicit) s += ` sz="${Math.round(run.fontSize * 100)}"`
   if (run.bold) s += ' b="1"'
   if (run.italic) s += ' i="1"'
-  if (run.underline && !run.underlineImplicit) s += ` u="${escapeXmlAttr(run.underlineStyle ?? 'sng')}"`
+  if (run.underline && !run.underlineImplicit)
+    s += ` u="${escapeXmlAttr(run.underlineStyle ?? 'sng')}"`
   if (run.strike) s += ` strike="${escapeXmlAttr(run.strikeStyle ?? 'sngStrike')}"`
   if (run.letterSpacing) s += ` spc="${Math.round(run.letterSpacing * 100)}"`
   if (run.baseline) s += ` baseline="${Math.round(run.baseline * 1000)}"`
@@ -998,12 +999,15 @@ const TRANSITION_INNER: Record<Exclude<SlideTransitionKind, 'none' | 'morph'>, s
 }
 
 /**
- * Morph transition: PowerPoint 2019+'s <p159:morph> (2015/main namespace), wrapped
+ * Morph transition: PowerPoint 2019+'s <p159:morph> (2015/09/main namespace), wrapped
  * in mc:AlternateContent — older PowerPoint uses the Fallback fade without erroring.
  */
 const MORPH_TRANSITION_XML =
   '<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">' +
-  '<mc:Choice xmlns:p159="http://schemas.microsoft.com/office/powerpoint/2015/main" Requires="p159">' +
+  // the morph namespace is .../2015/09/main — the /09 is easy to drop and the
+  // result is not a broken file but a silently missing transition: PowerPoint
+  // matches no Choice, takes no Fallback either, and shows "None"
+  '<mc:Choice xmlns:p159="http://schemas.microsoft.com/office/powerpoint/2015/09/main" Requires="p159">' +
   '<p:transition xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" spd="slow" p14:dur="800">' +
   '<p159:morph option="byObject"/></p:transition></mc:Choice>' +
   '<mc:Fallback><p:transition spd="slow"><p:fade/></p:transition></mc:Fallback>' +
