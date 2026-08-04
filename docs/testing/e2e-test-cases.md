@@ -223,6 +223,24 @@ Automated results are from `npx vitest run --root apps/sheets`.
 | E9 preload boundary | **pass** | automated, `preload-bridge.test.ts`, 53 cases |
 | E10 autosave recovery | **partial** | the prompt appeared on reopen after the app was killed, and Discard correctly loaded the on-disk file. **Restore was not exercised** — the half that actually recovers work is unverified |
 
+## Out of scope: Genspark
+
+Genspark account, login and the search/image tools it backs are not tested —
+this project does not use them. They are 26 statements, 0.2% of the
+application layer, so the exclusion barely moves the target.
+
+It matters for a different reason. The main-process sweep in
+`sheets-main-ipc.test.ts` drives every registered channel, and `ai:gsk-login`
+calls `execFile` on `node:child_process` directly rather than through
+electron's shell — so mocking electron did nothing and each junk input opened
+a real browser login tab on the developer's machine. `ai:web-search` and
+`ai:image-search` each started a node process the same way.
+
+The fix is not to skip those three channels but to **mock `node:child_process`
+for the whole file and assert that a test run starts no process at all**. That
+neutralises the class rather than the instance, including any handler added
+later that shells out. The channels are skipped as well, by request.
+
 ## Coverage target: the application layer
 
 The meaningful target is the **application layer** — every `.ts` under

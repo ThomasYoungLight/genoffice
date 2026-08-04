@@ -16,6 +16,44 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 type Handler = (event: unknown, ...args: unknown[]) => unknown
 const handlers = new Map<string, Handler>()
 
+/**
+ * Nothing in a test run may start a process.
+ *
+ * This is not hypothetical: driving every channel with junk reached
+ * `ai:gsk-login`, which calls execFile directly on node:child_process — not
+ * through electron's shell — and each call launched a real browser login flow
+ * on the developer's machine. Mocking electron did not help, because the spawn
+ * never went through electron.
+ *
+ * Blocking the module is the fix rather than skipping that one channel: it
+ * neutralises the whole class, including the sidecar and any handler added
+ * later that shells out.
+ */
+const spawned: string[] = []
+/// Set while a channel is being driven, so a spawn can name its culprit.
+const driving = { channel: '(module load)' }
+vi.mock('node:child_process', () => {
+  const record = (command: unknown) => {
+    spawned.push(`${driving.channel} -> ${String(command).split('/').pop()}`)
+    return {
+      on: () => undefined,
+      once: () => undefined,
+      kill: () => undefined,
+      stdout: { on: () => undefined, setEncoding: () => undefined },
+      stderr: { on: () => undefined, setEncoding: () => undefined },
+      stdin: { write: () => undefined, end: () => undefined },
+      unref: () => undefined,
+    }
+  }
+  return {
+    default: { execFile: record, exec: record, spawn: record, execFileSync: record },
+    execFile: record,
+    exec: record,
+    spawn: record,
+    execFileSync: record,
+  }
+})
+
 vi.mock('electron', () => {
   const noopWindow = {
     on: () => undefined,
@@ -88,6 +126,12 @@ describe('the IPC surface exists', () => {
   })
 })
 
+/// Genspark-backed channels, excluded by request — this project does not use
+/// them. They are also every channel that shells out to the gsk CLI, so the
+/// exclusion is hygiene as much as scope: gsk-login opens a browser, and
+/// web-search/image-search each start a node process.
+const SKIP = /gsk|login|logout|account|web-search|image-search/i
+
 describe('no handler accepts malformed input', () => {
   const JUNK: unknown[] = [undefined, null, 0, 'string', [], {}, { sessionId: 'not-a-uuid' }]
 
@@ -105,6 +149,8 @@ describe('no handler accepts malformed input', () => {
   it('every registered channel rejects every junk payload', async () => {
     const accepted: string[] = []
     for (const [channel, handler] of handlers) {
+      if (SKIP.test(channel)) continue
+      driving.channel = channel
       for (const input of JUNK) {
         try {
           if ((await settle(handler(event, input))) === TIMED_OUT) continue
@@ -121,6 +167,17 @@ describe('no handler accepts malformed input', () => {
     }
     expect(accepted, `handlers that accepted junk:\n${accepted.join('\n')}`).toEqual([])
   }, 30_000)
+
+  it('starts no process while doing it', () => {
+    // The regression guard for the browser tabs: if a future handler shells
+    // out, this fails here instead of on someone's desktop.
+    expect(spawned, `tests spawned: ${spawned.join(', ')}`).toEqual([])
+  })
+
+  it('skips the Genspark channels deliberately, not by accident', () => {
+    const skipped = [...handlers.keys()].filter((channel) => SKIP.test(channel))
+    expect(skipped.length).toBeGreaterThan(0)
+  })
 })
 
 describe('window and path bookkeeping', () => {
