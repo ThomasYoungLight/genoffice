@@ -291,7 +291,12 @@ yield depends almost entirely on what the file targets:
 | scattered pure helpers in a huge file (`univer-sync`) | +0.3 pts |
 
 So the strategy that works is: **find the biggest single function or the
-widest uniform surface, and drive that**. Picking off pure helpers from a
+widest uniform surface, and drive that** — with one correction learned the
+hard way. "Big function" is the wrong criterion; it is *unique uncovered
+code* that pays. `handleCreatePivot` is a substantial dialog entry point and
+returned only +0.4, because it is thirty lines of translation on top of
+`applyAiPivotAdd`, which was already covered. Check what a function delegates
+to before picking it. Picking off pure helpers from a
 large file is the worst ratio measured — `univer-sync.ts` moved 7.3% -> 10.5%
 for thirty tests, because its mass is in `syncUniver` and
 `loadSnapshotIntoUniver`, which need a live Univer rather than a double.

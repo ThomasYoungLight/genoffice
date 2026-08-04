@@ -148,6 +148,10 @@ export function fakeSheet(options: FakeSheetOptions = {}) {
         ? {
             getRange: () => ({ getRange: () => filter }),
             getColumnFilterCriteria: () => null,
+            setColumnFilterCriteria: (...args: unknown[]) =>
+              calls.push(['setColumnFilterCriteria', ...args]),
+            removeColumnFilterCriteria: (...args: unknown[]) =>
+              calls.push(['removeColumnFilterCriteria', ...args]),
           }
         : null,
     getNotes: () => notes,
