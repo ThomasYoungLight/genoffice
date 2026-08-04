@@ -74,6 +74,13 @@ import {
 import { t } from './i18n/locale'
 import { INDENT_STEP_PX } from './selection-format'
 import {
+  availableSubRange,
+  containsRange,
+  indexingProgress,
+  planFollowUp,
+  planRangeLoad,
+} from './lazy-load-plan'
+import {
   fileRangeToScreenRange,
   indexedThroughScreenRow,
   mapRangeResultToScreen,
@@ -1471,10 +1478,14 @@ async function loadRange(
   const state = lazyWorkbookRef.current
   if (!state) return
   const sheetId = worksheet.getSheetId()
-  const loaded = state.loadedRanges.get(sheetId)
-  if (!isRetry && loaded && containsRange(loaded, range)) return
-  const requestKey = `${range.startRow}:${range.endRow}:${range.startColumn}:${range.endColumn}`
-  if (!isRetry && state.loadingKeys.get(sheetId) === requestKey) return
+  const decision = planRangeLoad({
+    range,
+    loaded: state.loadedRanges.get(sheetId),
+    inFlightKey: state.loadingKeys.get(sheetId),
+    isRetry,
+  })
+  if (decision.kind === 'skip') return
+  const { requestKey } = decision
   const previousTimer = state.retryTimers.get(sheetId)
   if (previousTimer) clearTimeout(previousTimer)
   state.retryTimers.delete(sheetId)
@@ -1492,12 +1503,10 @@ async function loadRange(
       state.loadedRanges.set(sheetId, range)
       return
     }
-    const availableEndRow =
-      mapped.indexedThroughScreen === null
-        ? null
-        : Math.min(mapped.indexedThroughScreen, range.endRow)
-    if (availableEndRow !== null && availableEndRow >= range.startRow) {
-      const availableRange = { ...range, endRow: availableEndRow }
+    const available = availableSubRange(range, mapped.indexedThroughScreen)
+    const availableEndRow = available?.endRow ?? null
+    if (available) {
+      const availableRange = available
       const alreadyLoaded = state.loadedRanges.get(sheetId)
       if (!alreadyLoaded || !containsRange(alreadyLoaded, availableRange)) {
         patchWorksheetRange(
@@ -1543,21 +1552,28 @@ async function loadRange(
     if (!result.indexingComplete) {
       // Poll until the stream finishes: merged-cell ranges and trailing row
       // properties only become available at the end of the worksheet part.
-      const indexedRows = (result.indexedThroughRow ?? -1) + 1
-      if (
-        isActiveSheet(runtime, sheetId) &&
-        (result.indexedThroughRow === null || result.indexedThroughRow < mapped.fileEndRow)
-      ) {
+      const progress = indexingProgress({
+        isActiveSheet: isActiveSheet(runtime, sheetId),
+        indexedThroughRow: result.indexedThroughRow ?? null,
+        fileEndRow: mapped.fileEndRow,
+      })
+      if (progress.show) {
         setMessage(
-          t('appIndexing', { name: sheet?.name ?? sheetId, rows: indexedRows.toLocaleString() }),
+          t('appIndexing', {
+            name: sheet?.name ?? sheetId,
+            rows: progress.rowsIndexed.toLocaleString(),
+          }),
         )
       }
-      if (
-        waitForRequestedRange &&
-        waitAttempt < 20 &&
-        (availableEndRow === null || availableEndRow < range.endRow)
-      ) {
-        await new Promise((resolve) => setTimeout(resolve, 250))
+      const followUp = planFollowUp({
+        indexingComplete: result.indexingComplete,
+        requestedEndRow: range.endRow,
+        availableEndRow,
+        waitForRequestedRange,
+        waitAttempt,
+      })
+      if (followUp.kind === 'poll') {
+        await new Promise((resolve) => setTimeout(resolve, followUp.delayMs))
         if (lazyWorkbookRef.current === state) {
           state.loadingKeys.delete(sheetId)
           await loadRange(
@@ -1568,17 +1584,17 @@ async function loadRange(
             setMessage,
             true,
             true,
-            waitAttempt + 1,
+            followUp.nextAttempt,
           )
         }
-      } else {
+      } else if (followUp.kind === 'retry-later') {
         const timer = setTimeout(() => {
           if (lazyWorkbookRef.current !== state) return
           state.loadingKeys.delete(sheetId)
           void loadRange(runtime, lazyWorkbookRef, worksheet, range, setMessage, true).then(() =>
             loadFrozenColumnStrip(lazyWorkbookRef, worksheet, sheet, range),
           )
-        }, 250)
+        }, followUp.delayMs)
         state.retryTimers.set(sheetId, timer)
       }
     } else if (isActiveSheet(runtime, sheetId)) {
@@ -1768,15 +1784,6 @@ function createBufferedRange(visible: IRange, rowCount: number, columnCount: num
     startColumn: Math.max(0, visible.startColumn - columnBuffer),
     endColumn: Math.min(columnCount - 1, visible.endColumn + columnBuffer),
   }
-}
-
-function containsRange(container: IRange, requested: IRange): boolean {
-  return (
-    container.startRow <= requested.startRow &&
-    container.endRow >= requested.endRow &&
-    container.startColumn <= requested.startColumn &&
-    container.endColumn >= requested.endColumn
-  )
 }
 
 function patchWorksheetRange(
