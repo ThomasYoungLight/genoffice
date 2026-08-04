@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { toRichTextDocument } from '../src/renderer/univer-sync'
+import { toRichTextDocument } from '../src/renderer/cell-matrix'
 import { createEditJournal, recordSetRangeValues, toSaveEdits } from '../src/renderer/edit-journal'
 import type { WorkbookRichRun } from '../src/shared/desktop-api'
 

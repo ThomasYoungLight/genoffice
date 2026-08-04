@@ -28,9 +28,9 @@ import {
   queueVisualInstall,
   sheetOutline,
   syncUniver,
-  toRichTextDocument,
   univerDefinedNames,
 } from './univer-sync'
+import { toRichTextDocument } from './cell-matrix'
 import {
   journalSuppression,
   type ActiveWorkbook,

@@ -10,11 +10,8 @@ import {
   BorderStyleTypes,
   CellValueType,
   CommandType,
-  HorizontalAlign,
   ICommandService,
   IUndoRedoService,
-  VerticalAlign,
-  WrapStrategy,
   type ICellData,
   type IRange,
   type IStyleData,
@@ -40,7 +37,6 @@ import { WORST_FIRST_ICON_SETS } from '../gateway/xlsx-cf'
 import type {
   CellFormatState,
   CellState,
-  RichRun,
   WorkbookSnapshot,
 } from '../domain/workbook.types'
 import type {
@@ -73,6 +69,7 @@ import {
 } from './formula-closure'
 import { t } from './i18n/locale'
 import { INDENT_STEP_PX } from './selection-format'
+import { buildCellMatrix, evictionRange, toRichTextDocument } from './cell-matrix'
 import {
   availableSubRange,
   containsRange,
@@ -1900,175 +1897,29 @@ function patchWorksheetRangeInner(
   useFormulas: boolean,
   arrayFollowers?: ReadonlySet<string>,
 ): void {
-  if (previousRange) {
-    // Frozen rows/columns stay visible while scrolling, so never evict them —
-    // later viewport patches don't include them and they'd go blank.
-    const clearStartRow = Math.max(previousRange.startRow, freeze?.frozenRows ?? 0)
-    const clearStartColumn = Math.max(previousRange.startColumn, freeze?.frozenColumns ?? 0)
-    if (clearStartRow <= previousRange.endRow && clearStartColumn <= previousRange.endColumn) {
-      const previous = worksheet.getRange(
-        clearStartRow,
-        clearStartColumn,
-        previousRange.endRow - clearStartRow + 1,
-        previousRange.endColumn - clearStartColumn + 1,
-      )
-      previous.clearContent()
-      previous.clearFormat()
-    }
+  const eviction = evictionRange(previousRange, freeze)
+  if (eviction) {
+    const previous = worksheet.getRange(
+      eviction.startRow,
+      eviction.startColumn,
+      eviction.endRow - eviction.startRow + 1,
+      eviction.endColumn - eviction.startColumn + 1,
+    )
+    previous.clearContent()
+    previous.clearFormat()
   }
-  const linkedCells = new Set(hyperlinks.map((link) => `${link.row}:${link.column}`))
+  const matrix = buildCellMatrix({
+    range,
+    cells,
+    styles,
+    hyperlinks,
+    tables,
+    useFormulas,
+    arrayFollowers,
+  })
   const rows = range.endRow - range.startRow + 1
   const columns = range.endColumn - range.startColumn + 1
-  const matrix: ICellData[][] = Array.from({ length: rows }, () =>
-    Array.from({ length: columns }, () => ({})),
-  )
-  for (const cell of cells) {
-    if (
-      cell.row < range.startRow ||
-      cell.row > range.endRow ||
-      cell.column < range.startColumn ||
-      cell.column > range.endColumn
-    ) {
-      continue
-    }
-    const displayValue = cell.value ?? cell.formula ?? ''
-    const row = matrix[cell.row - range.startRow]
-    const style = cell.styleIndex === undefined ? undefined : styles[cell.styleIndex]
-    // CSE array follower: its dead cached value would block the master's
-    // spill with #SPILL!; keep the style, let the engine fill the content.
-    if (useFormulas && arrayFollowers?.has(`${cell.row}:${cell.column}`)) {
-      if (row) {
-        row[cell.column - range.startColumn] = style ? { s: toUniverStyle(style) } : {}
-      }
-      continue
-    }
-    const isLink = linkedCells.has(`${cell.row}:${cell.column}`)
-    const multiline = typeof displayValue === 'string' && displayValue.includes('\n')
-    if (row) {
-      row[cell.column - range.startColumn] = {
-        // Explicit string typing: bare `v` lets Univer coerce numeric-looking
-        // text ("007", phone numbers) into numbers.
-        ...(cell.rich && typeof displayValue === 'string'
-          ? { p: toRichTextDocument(displayValue, cell.rich) }
-          : useFormulas && cell.formula
-            ? // No cached value: leave v unset so the engine computes instead
-              // of showing the formula text as a literal.
-              cell.value === null || cell.value === undefined
-              ? { f: cell.formula }
-              : { f: cell.formula, v: cell.value }
-            : typeof displayValue === 'string' && multiline
-              ? // Bare `v` renders only the first line; the doc model keeps all.
-                { p: toRichTextDocument(displayValue) }
-              : typeof displayValue === 'string' && displayValue !== ''
-                ? { v: displayValue, t: CellValueType.STRING }
-                : { v: displayValue }),
-        ...(style || isLink || multiline
-          ? {
-              s: {
-                // Link blue/underline is a fallback only: a colour or
-                // underline the file specifies must win (#161).
-                ...(isLink ? { cl: { rgb: '#0563C1' }, ul: { s: BooleanNumber.TRUE } } : {}),
-                ...(style ? toUniverStyle(style) : {}),
-                // Excel shows manual line breaks even without wrapText.
-                ...(multiline ? { tb: WrapStrategy.WRAP } : {}),
-              },
-            }
-          : {}),
-      }
-    }
-  }
-  applyTableBanding(matrix, range, tables)
   worksheet.getRange(range.startRow, range.startColumn, rows, columns).setValues(matrix)
-}
-
-/// Approximates Excel table styles (header band + row stripes) for cells that
-/// carry no explicit fill of their own.
-function applyTableBanding(
-  matrix: ICellData[][],
-  range: IRange,
-  tables: WorkbookFile['sheets'][number]['tables'],
-): void {
-  for (const table of tables) {
-    const rowStart = Math.max(range.startRow, table.range.startRow)
-    const rowEnd = Math.min(range.endRow, table.range.endRow)
-    const columnStart = Math.max(range.startColumn, table.range.startColumn)
-    const columnEnd = Math.min(range.endColumn, table.range.endColumn)
-    if (rowStart > rowEnd || columnStart > columnEnd) continue
-    // Colors are resolved sidecar-side from the workbook's real theme accents
-    // (Light/Medium/Dark variant rules); the literals are a last-resort fallback.
-    const headerFill = table.headerFill
-    const headerFont = table.headerFontColor ?? '#FFFFFF'
-    const stripeFill = table.stripeFill ?? '#D9E1F2'
-    const dataStartRow = table.range.startRow + table.headerRowCount
-    for (let row = rowStart; row <= rowEnd; row += 1) {
-      const isHeader = row < dataStartRow
-      const isStripe = !isHeader && table.showRowStripes && (row - dataStartRow) % 2 === 1
-      if (!isHeader && !isStripe) continue
-      for (let column = columnStart; column <= columnEnd; column += 1) {
-        const cell = matrix[row - range.startRow]?.[column - range.startColumn]
-        if (!cell) continue
-        const style = (cell.s ?? {}) as IStyleData
-        if (style.bg) continue
-        cell.s = isHeader
-          ? {
-              ...style,
-              ...(headerFill ? { bg: { rgb: headerFill } } : {}),
-              cl: { rgb: headerFill ? headerFont : (table.headerFontColor ?? '#333333') },
-              bl: BooleanNumber.TRUE,
-            }
-          : { ...style, bg: { rgb: stripeFill } }
-      }
-    }
-  }
-}
-
-/**
- * `runs` is deliberately looser than WorkbookRichRun: the DSL lets a run set
- * only what it changes ("bold the second word"), and every flag is read
- * truthily below, so requiring all four would force callers to invent values
- * for flags they have no opinion about.
- */
-export function toRichTextDocument(
-  text: string,
-  runs: readonly RichRun[] = [],
-): ICellData['p'] {
-  const textRuns = []
-  let cursor = 0
-  for (const run of runs) {
-    const end = cursor + run.text.length
-    textRuns.push({
-      st: cursor,
-      ed: end,
-      ts: {
-        ...(run.family ? { ff: run.family } : {}),
-        ...(run.size ? { fs: run.size } : {}),
-        ...(run.bold ? { bl: BooleanNumber.TRUE } : {}),
-        ...(run.italic ? { it: BooleanNumber.TRUE } : {}),
-        ...(run.underline ? { ul: { s: BooleanNumber.TRUE } } : {}),
-        ...(run.strikethrough ? { st: { s: BooleanNumber.TRUE } } : {}),
-        ...(run.color ? { cl: { rgb: run.color } } : {}),
-      },
-    })
-    cursor = end
-  }
-  // Univer document streams use \r as paragraph break and \n as section
-  // break; a raw \n would split the cell into sections and drop later lines.
-  // 1:1 replacement, so textRun offsets stay valid.
-  const dataStream = `${text.replace(/\n/g, '\r')}\r\n`
-  const paragraphs: Array<{ startIndex: number }> = []
-  for (let i = 0; i < dataStream.length; i += 1) {
-    if (dataStream[i] === '\r') paragraphs.push({ startIndex: i })
-  }
-  return {
-    id: 'rich-cell',
-    body: {
-      dataStream,
-      textRuns,
-      paragraphs,
-      sectionBreaks: [{ startIndex: dataStream.length - 1 }],
-    },
-    documentStyle: {},
-  }
 }
 
 /// Formula mode: pull every sheet block by block and patch cells with their
@@ -2922,95 +2773,6 @@ function applyDxfFormat(
   if (dxf.underline) styled = styled.setUnderline(true)
   if (dxf.strikethrough) styled = styled.setStrikethrough(true)
   return styled
-}
-
-function toUniverStyle(style: WorkbookCellStyle): IStyleData {
-  const diagonal = style.borderDiagonal ? toUniverBorder(style.borderDiagonal) : undefined
-  const borders = {
-    ...(style.borderTop ? { t: toUniverBorder(style.borderTop) } : {}),
-    ...(style.borderBottom ? { b: toUniverBorder(style.borderBottom) } : {}),
-    ...(style.borderLeft ? { l: toUniverBorder(style.borderLeft) } : {}),
-    ...(style.borderRight ? { r: toUniverBorder(style.borderRight) } : {}),
-    ...(diagonal && style.diagonalDown ? { tl_br: diagonal } : {}),
-    ...(diagonal && style.diagonalUp ? { bl_tr: diagonal } : {}),
-  }
-  return {
-    ...(style.fontFamily ? { ff: style.fontFamily } : {}),
-    ...(style.fontSize ? { fs: style.fontSize } : {}),
-    bl: style.bold ? BooleanNumber.TRUE : BooleanNumber.FALSE,
-    it: style.italic ? BooleanNumber.TRUE : BooleanNumber.FALSE,
-    ...(style.underline ? { ul: { s: BooleanNumber.TRUE } } : {}),
-    ...(style.strikethrough ? { st: { s: BooleanNumber.TRUE } } : {}),
-    ...(style.wrapText ? { tb: WrapStrategy.WRAP } : {}),
-    ...(style.fontColor ? { cl: { rgb: style.fontColor } } : {}),
-    ...(style.fillColor ? { bg: { rgb: style.fillColor } } : {}),
-    ...(style.numberFormat ? { n: { pattern: style.numberFormat } } : {}),
-    ...(Object.keys(borders).length > 0 ? { bd: borders } : {}),
-    ...(mapHorizontalAlignment(style.horizontalAlignment) === undefined
-      ? {}
-      : { ht: mapHorizontalAlignment(style.horizontalAlignment) }),
-    ...(mapVerticalAlignment(style.verticalAlignment) === undefined
-      ? {}
-      : { vt: mapVerticalAlignment(style.verticalAlignment) }),
-    ...(style.indent ? { pd: { l: style.indent * INDENT_STEP_PX } } : {}),
-  }
-}
-
-function toUniverBorder(edge: NonNullable<WorkbookCellStyle['borderTop']>): {
-  s: BorderStyleTypes
-  cl: { rgb: string }
-} {
-  return {
-    s: mapBorderStyle(edge.style),
-    cl: { rgb: edge.color ?? '#000000' },
-  }
-}
-
-function mapBorderStyle(style: string): BorderStyleTypes {
-  switch (style) {
-    case 'hair':
-      return BorderStyleTypes.HAIR
-    case 'dotted':
-      return BorderStyleTypes.DOTTED
-    case 'dashed':
-      return BorderStyleTypes.DASHED
-    case 'dashDot':
-      return BorderStyleTypes.DASH_DOT
-    case 'dashDotDot':
-      return BorderStyleTypes.DASH_DOT_DOT
-    case 'double':
-      return BorderStyleTypes.DOUBLE
-    case 'medium':
-      return BorderStyleTypes.MEDIUM
-    case 'mediumDashed':
-      return BorderStyleTypes.MEDIUM_DASHED
-    case 'mediumDashDot':
-      return BorderStyleTypes.MEDIUM_DASH_DOT
-    case 'mediumDashDotDot':
-      return BorderStyleTypes.MEDIUM_DASH_DOT_DOT
-    case 'slantDashDot':
-      return BorderStyleTypes.SLANT_DASH_DOT
-    case 'thick':
-      return BorderStyleTypes.THICK
-    default:
-      return BorderStyleTypes.THIN
-  }
-}
-
-function mapHorizontalAlignment(value: string | undefined): HorizontalAlign | undefined {
-  if (value === 'left') return HorizontalAlign.LEFT
-  if (value === 'center') return HorizontalAlign.CENTER
-  if (value === 'right') return HorizontalAlign.RIGHT
-  if (value === 'justify') return HorizontalAlign.JUSTIFIED
-  if (value === 'distributed') return HorizontalAlign.DISTRIBUTED
-  return undefined
-}
-
-function mapVerticalAlignment(value: string | undefined): VerticalAlign | undefined {
-  if (value === 'top') return VerticalAlign.TOP
-  if (value === 'center') return VerticalAlign.MIDDLE
-  if (value === 'bottom') return VerticalAlign.BOTTOM
-  return undefined
 }
 
 export function disposeVisuals(disposables: { dispose(): void }[]): void {
