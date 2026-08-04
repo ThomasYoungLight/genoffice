@@ -61,6 +61,14 @@ export interface ToolExecution {
    * Ignored when tool results are assembled into an AgentMessage.
    */
   display?: ToolDisplay
+  /**
+   * Images the model should actually look at — a rendered preview of the
+   * document, say. A tool result carries text only (every provider models it
+   * that way), so these ride on a user turn pushed straight after the results,
+   * which is the same path attachment images already take. Keeping them out of
+   * the result block is what preserves tool_use/tool_result pairing.
+   */
+  images?: AgentImage[]
 }
 
 // ---- run phase (drives the in-progress status line in chat UIs) ----

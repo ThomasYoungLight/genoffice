@@ -197,6 +197,30 @@ const desktopApi: DesktopApi = {
     }
     return result as { canceled: true } | { canceled: false; path: string }
   },
+  async renderPreview(request) {
+    if (
+      !isRecord(request) ||
+      typeof request.html !== 'string' ||
+      request.html.length === 0 ||
+      request.html.length > 20_000_000 ||
+      !isIntegerInRange(request.width, 320, 2400) ||
+      !isIntegerInRange(request.maxHeight, 320, 4000)
+    ) {
+      throw new Error('Invalid preview render request.')
+    }
+    const result: unknown = await ipcRenderer.invoke(IPC_CHANNELS.renderPreview, request)
+    if (
+      !isRecord(result) ||
+      typeof result.base64 !== 'string' ||
+      result.base64.length === 0 ||
+      !isPositiveInteger(result.width) ||
+      !isPositiveInteger(result.height) ||
+      typeof result.truncated !== 'boolean'
+    ) {
+      throw new Error('Invalid preview render response.')
+    }
+    return result as { base64: string; width: number; height: number; truncated: boolean }
+  },
   async closeWorkbook(sessionId) {
     if (!isUuid(sessionId)) throw new Error('Invalid workbook session.')
     await ipcRenderer.invoke(IPC_CHANNELS.closeWorkbook, sessionId)
@@ -2172,6 +2196,10 @@ function normalizedDefaultSize(input: unknown): number | null {
 
 function isPositiveInteger(input: unknown): input is number {
   return isNonnegativeInteger(input) && input > 0
+}
+
+function isIntegerInRange(input: unknown, min: number, max: number): input is number {
+  return isNonnegativeInteger(input) && input >= min && input <= max
 }
 
 function isCellScalar(input: unknown): input is string | number | boolean | null {

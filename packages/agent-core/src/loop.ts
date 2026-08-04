@@ -142,6 +142,14 @@ function mechanicalDigest(dropped: readonly AgentMessage[]): string {
   return lines.join('\n').slice(0, 4_000) || '(earlier conversation omitted)'
 }
 
+
+/** Names the images so the model treats them as something to inspect rather than as a stray attachment. */
+function toolImageNote(count: number): string {
+  return count === 1
+    ? '[System] A tool rendered the image below. Look at it and judge the result against what was asked; if something is wrong, fix it.'
+    : `[System] Tools rendered the ${count} images below. Look at them and judge the result against what was asked; if something is wrong, fix it.`
+}
+
 /**
  * Generic ReAct loop: user message -> model turn (text + tool calls) ->
  * execute tools -> feed results back -> repeat until the model answers with
@@ -492,6 +500,7 @@ export class AgentLoop<TSnapshot = unknown> {
     this.history.push({ role: 'assistant', text: this.turnText, toolCalls })
     const generation = this.generation
     const results: AgentToolResult[] = []
+    const toolImages: AgentImage[] = []
     for (const call of toolCalls) {
       // The user hit stop while an earlier tool was running: skip remaining tools,
       // but fill in paired error results to keep tool_use/tool_result pairs valid for the next request
@@ -534,6 +543,7 @@ export class AgentLoop<TSnapshot = unknown> {
       if (generation !== this.generation) return // reset while a tool was running
       const firstMutation = !!execution.mutated && !this.mutationSeen
       if (execution.mutated) this.mutationSeen = true
+      for (const image of execution.images ?? []) toolImages.push(image)
       results.push({
         id: call.id,
         name: call.name,
@@ -547,6 +557,16 @@ export class AgentLoop<TSnapshot = unknown> {
       })
     }
     this.history.push({ role: 'tool', results })
+    // A tool that rendered something the model needs to see: the picture goes
+    // in its own user turn, after the results, so the tool_use/tool_result
+    // pairing above stays intact.
+    if (toolImages.length > 0) {
+      this.history.push({
+        role: 'user',
+        text: toolImageNote(toolImages.length),
+        images: toolImages,
+      })
+    }
 
     // Cancelled while tools were executing: finish immediately, no further model request
     if (this.cancelled) {

@@ -70,6 +70,14 @@ export interface SheetsSkillDeps {
   readFormats(addresses: readonly string[]): Record<string, CellFormatState>
   /** formatted report of a sheet's feature state (filters, CF, DV, names, visuals, …) */
   readSheetFeatures(sheetId?: string): string
+  /**
+   * Renders the active sheet to a PNG the model can look at, or returns an
+   * error string. Lives here rather than in the tool so the tool layer stays
+   * free of Univer and IPC.
+   */
+  renderPreview(
+    width: number,
+  ): Promise<{ base64: string; width: number; height: number; truncated: boolean } | string>
   proposeOperations(
     operations: readonly WorkbookOperation[],
     summary: string,
@@ -148,6 +156,25 @@ export const WORKBOOK_TOOLS: AgentToolDef[] = [
         range: { type: 'string', description: 'Range like "A1:D20"' },
       },
       required: ['range'],
+    },
+  },
+  {
+    name: 'render_preview',
+    description:
+      'Render the active sheet as an image and look at it. Use this after building or restyling something visual — a chart, ' +
+      'shapes, images, a formatted table — to check the result instead of assuming it. Shows what a printed page would show: ' +
+      'cell values with their number formats, styles, merges, and any charts/images/shapes/sparklines over the grid. ' +
+      'Data bars and icon-set conditional formats do not appear (colour scales and fills do). ' +
+      'It reads the live grid, so call it after your edits have been applied, not before.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        width: {
+          type: 'number',
+          description: 'Viewport width in pixels for the render (default 1000, max 2400)',
+        },
+      },
+      required: [],
     },
   },
   {
@@ -256,6 +283,8 @@ export interface ToolExecution {
   /** true when propose_operations auto-applied a batch of changes */
   mutated: boolean
   summary: string
+  /** images for the model to look at; the loop puts them on a following user turn */
+  images?: { base64: string; mime: string }[]
 }
 
 const fail = (summary: string, output: string): ToolExecution => ({
@@ -576,6 +605,25 @@ export function executeWorkbookTool(
         summary: t('aiToolReadFormatsOf', { range: raw.trim().toUpperCase() }),
       }
     }
+
+    case 'render_preview':
+      return (async (): Promise<ToolExecution> => {
+        const raw = call.input.width
+        const width = typeof raw === 'number' && Number.isFinite(raw) ? Math.round(raw) : 1000
+        const preview = await deps.renderPreview(Math.min(Math.max(width, 320), 2400))
+        if (typeof preview === 'string') return fail(t('aiToolRenderPreview'), preview)
+        return {
+          output:
+            `Rendered the active sheet at ${preview.width}x${preview.height}px. ` +
+            (preview.truncated
+              ? 'The sheet is taller than one image; only the top is shown. '
+              : '') +
+            'The image follows — look at it and check the result against what was asked.',
+          mutated: false,
+          summary: t('aiToolRenderPreview'),
+          images: [{ base64: preview.base64, mime: 'image/png' }],
+        }
+      })()
 
     case 'read_sheet_features': {
       const raw = call.input.sheetId

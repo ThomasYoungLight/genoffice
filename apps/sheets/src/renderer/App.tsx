@@ -52,6 +52,8 @@ import {
   type PlanContext,
 } from './plan-operations'
 import { isAgentConfigured } from './agent-configured'
+import { buildSheetPrintPayload, type PrintWorksheet } from './print-html'
+import { capturePrintVisuals } from './print-visuals'
 import { isNumericIdentifierText } from './cell-warning'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 
@@ -977,6 +979,31 @@ export function App(): React.JSX.Element {
       readCells: (addresses) => readCellsImpl(readContext(), addresses),
       readFormats: (addresses) => readFormatsImpl(readContext(), addresses),
       readSheetFeatures: (sheetId) => readSheetFeaturesImpl(readContext(), sheetId),
+      renderPreview: async (width) => {
+        // Same payload the PDF export builds, captured as a PNG instead — so
+        // what the agent sees is exactly what a print would produce.
+        const runtime = univerRef.current
+        const worksheet = runtime?.univerAPI.getActiveWorkbook()?.getActiveSheet()
+        if (!runtime || !worksheet) return t('appActiveSheetUnavailable')
+        try {
+          const state = lazyWorkbookRef.current
+          const pageSetup = state?.editJournal.pageSetup.get(worksheet.getSheetId()) ?? {}
+          const payload = buildSheetPrintPayload(
+            worksheet as unknown as PrintWorksheet,
+            pageSetup,
+            'preview.pdf',
+            worksheet.getSheetName(),
+            capturePrintVisuals(),
+          )
+          return await window.desktopApi.renderPreview({
+            html: payload.html,
+            width,
+            maxHeight: 4000,
+          })
+        } catch (error: unknown) {
+          return error instanceof Error ? error.message : String(error)
+        }
+      },
       proposeOperations,
       ...(sessionId
         ? {

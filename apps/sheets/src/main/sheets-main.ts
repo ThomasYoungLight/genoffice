@@ -113,6 +113,7 @@ import {
   localImageResultSchema,
   workbookPivotDefinitionSchema,
   workbookExportPdfRequestSchema,
+  workbookRenderPreviewRequestSchema,
   workbookRangeRequestSchema,
   workbookRawGetRequestSchema,
   workbookRawPartsRequestSchema,
@@ -124,7 +125,7 @@ import {
 } from '../shared/desktop-api'
 import { IPC_CHANNELS } from '../shared/ipc-channels'
 import { closeGuardDecision } from './close-guard'
-import { exportPdf } from './pdf-export'
+import { exportPdf, renderPreview } from './pdf-export'
 import { XlsxSidecarClient } from './xlsx-sidecar-client'
 
 /**
@@ -1957,6 +1958,11 @@ export function registerSheetsIpc(): void {
     sessionFor(event)
     const request = workbookExportPdfRequestSchema.parse(input)
     return exportPdf(event, request)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.renderPreview, async (event, input: unknown) => {
+    sessionFor(event)
+    return renderPreview(workbookRenderPreviewRequestSchema.parse(input))
   })
 
   ipcMain.handle(IPC_CHANNELS.saveWorkbook, async (event, input: unknown) => {

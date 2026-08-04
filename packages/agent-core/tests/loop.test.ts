@@ -735,3 +735,68 @@ describe('composeSkills', () => {
     expect(() => composeSkills('x', '', [make('a'), make('b')])).toThrow(/duplicate/)
   })
 })
+
+/**
+ * A tool that renders something the model has to look at — a preview of the
+ * sheet it just built. Providers model a tool result as text only, so the
+ * picture cannot ride in the result block; it goes on a user turn straight
+ * after, which is also the only way tool_use/tool_result pairing survives.
+ */
+describe('AgentLoop tool images', () => {
+  const PIXEL = 'iVBORw0KGgo='
+
+  function previewSkill(images?: { base64: string; mime: string }[]): AgentSkill {
+    return {
+      id: 'test',
+      systemPrompt: 'system',
+      tools: [{ name: 'render_preview', description: 'd', inputSchema: { type: 'object' } }],
+      buildContext: () => 'CTX',
+      executeTool: () => ({
+        output: 'rendered',
+        summary: 'preview',
+        mutated: false,
+        ...(images ? { images } : {}),
+      }),
+    }
+  }
+
+  const callThenAnswer = () =>
+    scriptedTransport([
+      (cb) => {
+        cb.onToolCall({ id: 'c1', name: 'render_preview', input: {} })
+        cb.onDone()
+      },
+      (cb) => {
+        cb.onDelta('I can see it')
+        cb.onDone()
+      },
+    ])
+
+  it('puts a rendered image on its own user turn after the tool results', async () => {
+    const loop = new AgentLoop({
+      transport: callThenAnswer(),
+      skill: previewSkill([{ base64: PIXEL, mime: 'image/png' }]),
+    })
+    loop.run('look at the sheet')
+    await flush()
+    await flush()
+    const tool = loop.messages.findIndex((m) => m.role === 'tool')
+    expect(tool).toBeGreaterThan(-1)
+    const after = loop.messages[tool + 1]
+    expect(after?.role).toBe('user')
+    expect(after).toMatchObject({ images: [{ base64: PIXEL, mime: 'image/png' }] })
+    // the tool result itself stays text — that is what every provider accepts
+    const results = loop.messages[tool]
+    expect(results).toMatchObject({ results: [{ id: 'c1', output: 'rendered' }] })
+    expect(JSON.stringify(results)).not.toContain(PIXEL)
+  })
+
+  it('adds no extra turn when a tool returns no images', async () => {
+    const loop = new AgentLoop({ transport: callThenAnswer(), skill: previewSkill() })
+    loop.run('just run it')
+    await flush()
+    await flush()
+    const tool = loop.messages.findIndex((m) => m.role === 'tool')
+    expect(loop.messages[tool + 1]?.role).not.toBe('user')
+  })
+})

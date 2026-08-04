@@ -38,6 +38,7 @@ function fakeDeps(overrides: Partial<SheetsSkillDeps> = {}): SheetsSkillDeps {
     readCells: () => ({}),
     readFormats: () => ({}),
     readSheetFeatures: () => 'Feature state of sheet Sheet1 (id=sheet-1):\nAutoFilter: none',
+    renderPreview: () => Promise.resolve('preview not available in tests'),
     proposeOperations: () => ({ ok: false, error: 'not configured' }),
     ...overrides,
   }

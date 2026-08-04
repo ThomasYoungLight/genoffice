@@ -1743,6 +1743,12 @@ const aiProviderConfigSchema = z
     apiKey: z.string(),
     model: z.string(),
     baseUrl: z.string().optional(),
+    /// Per-provider image model. @genoffice/ai-provider has always carried this
+    /// (imageModelFor, sanitizeAiSettings, redactAiApiKeys all round-trip it),
+    /// but this schema is strict and did not list it — so once settings came
+    /// back from the renderer carrying the key, every ai:stream call failed
+    /// validation and the agent stopped working entirely.
+    imageModel: z.string().optional(),
     /// "a key is stored for this provider"; on the way in, false means "delete it"
     hasApiKey: z.boolean().optional(),
   })
@@ -1893,6 +1899,31 @@ export const workbookExportPdfResultSchema = z.union([
 export type WorkbookExportPdfRequest = z.infer<typeof workbookExportPdfRequestSchema>
 export type WorkbookExportPdfResult = z.infer<typeof workbookExportPdfResultSchema>
 
+/// Rasterises the same print HTML to a PNG instead of a PDF, so the agent can
+/// look at what it built. No save dialog and no file: the bytes come straight
+/// back. `width` is the viewport the page is laid out in; the capture is the
+/// full document height, clamped so one call cannot return a huge image.
+export const workbookRenderPreviewRequestSchema = z
+  .object({
+    html: z.string().min(1).max(20_000_000),
+    width: z.number().int().min(320).max(2400),
+    maxHeight: z.number().int().min(320).max(4000),
+  })
+  .strict()
+
+export const workbookRenderPreviewResultSchema = z
+  .object({
+    base64: z.string().min(1),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    /// True when the sheet was taller than maxHeight and the image stops early.
+    truncated: z.boolean(),
+  })
+  .strict()
+
+export type WorkbookRenderPreviewRequest = z.infer<typeof workbookRenderPreviewRequestSchema>
+export type WorkbookRenderPreviewResult = z.infer<typeof workbookRenderPreviewResultSchema>
+
 // ---- Chat attachments (local files fed to the agent via tools; same structure
 // as apps/docs and apps/slides) ----
 
@@ -1966,6 +1997,7 @@ export interface DesktopApi {
     baseName: string,
   ): Promise<{ renamed: boolean; name?: string }>
   exportPdf(request: WorkbookExportPdfRequest): Promise<WorkbookExportPdfResult>
+  renderPreview(request: WorkbookRenderPreviewRequest): Promise<WorkbookRenderPreviewResult>
   closeWorkbook(sessionId: string): Promise<void>
   openExternal(url: string): Promise<void>
   /// Application-menu File commands (Open/Save/Save As); returns unsubscribe.
