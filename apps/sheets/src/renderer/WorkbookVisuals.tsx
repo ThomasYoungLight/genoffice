@@ -12,6 +12,14 @@ import {
   splitSheetRef,
 } from '../domain/chart-visual'
 import { parseAddress } from '../domain/cell-address'
+import {
+  type AnchorMarker,
+  EMU_PER_PIXEL,
+  markerFrom,
+  markerSpan,
+  resolveAnchorExtent,
+  walkMarker,
+} from '../domain/drawing-anchor'
 import { t } from './i18n/locale'
 import type { WorkbookChartEdit, WorkbookFile, WorkbookVisualObject } from '../shared/desktop-api'
 
@@ -158,14 +166,39 @@ export function installWorkbookVisuals(
     const componentKey = `xlsx-${file.sessionId}-${visual.id}`
     const editable =
       isEditableShape(visual) || isEditableFileVisual(visual) || isEditableChart(visual)
-    const anchorAttr = printAnchor(visual.anchor)
+    // Past the lazy grid's edge, fall back to the sheet defaults — the same
+    // sizes Univer will hand the rows and columns install is about to add.
+    const gridConfig = worksheet.getSheet().getConfig()
+    const columnWidth = (index: number): number =>
+      Math.max(
+        index < worksheet.getMaxColumns()
+          ? worksheet.getColumnWidth(index)
+          : gridConfig.defaultColumnWidth,
+        1,
+      )
+    const rowHeight = (index: number): number =>
+      Math.max(
+        index < worksheet.getMaxRows() ? worksheet.getRowHeight(index) : gridConfig.defaultRowHeight,
+        1,
+      )
+    // A oneCellAnchor has no second marker, only an extent; give it one before
+    // anything measures the frame, so it renders, prints and drags at the size
+    // the file asked for instead of collapsing into its top-left cell.
+    const anchor = resolveAnchorExtent(visual.anchor, {
+      columnWidth,
+      rowHeight,
+      maxColumn: XLSX_MAX_COLUMN,
+      maxRow: XLSX_MAX_ROW,
+    })
+    const resolved = anchor === visual.anchor ? visual : { ...visual, anchor }
+    const anchorAttr = printAnchor(anchor)
     const component =
       shapeEditing && editable
         ? () => (
             <PrintMarker anchor={anchorAttr}>
               <EditableShapeVisual
                 file={file}
-                visual={visual}
+                visual={resolved}
                 worksheet={worksheet}
                 allowText={isEditableShape(visual)}
                 chartEditing={chartEditing}
@@ -175,27 +208,27 @@ export function installWorkbookVisuals(
           )
         : () => (
             <PrintMarker anchor={anchorAttr}>
-              <WorkbookVisual file={file} visual={visual} chartEditing={chartEditing} />
+              <WorkbookVisual file={file} visual={resolved} chartEditing={chartEditing} />
             </PrintMarker>
           )
     disposables.push(runtime.univerAPI.registerComponent(componentKey, component))
     // Lazy grids are sized to the data, but session-added visuals anchor
     // beyond it (default: two columns right of the data) — grow the grid so
     // the float keeps its frame instead of being clamped into a sliver.
-    if (visual.anchor.toRow >= worksheet.getMaxRows()) {
-      worksheet.setRowCount(visual.anchor.toRow + 1)
+    if (anchor.toRow >= worksheet.getMaxRows()) {
+      worksheet.setRowCount(anchor.toRow + 1)
     }
-    if (visual.anchor.toColumn >= worksheet.getMaxColumns()) {
-      worksheet.setColumnCount(visual.anchor.toColumn + 1)
+    if (anchor.toColumn >= worksheet.getMaxColumns()) {
+      worksheet.setColumnCount(anchor.toColumn + 1)
     }
     // An out-of-bounds anchor would throw in getRange and take every other
     // visual down with it — clamp the display range to the sheet.
     const maxRows = worksheet.getMaxRows()
     const maxColumns = worksheet.getMaxColumns()
-    const fromRow = Math.min(visual.anchor.fromRow, maxRows - 1)
-    const fromColumn = Math.min(visual.anchor.fromColumn, maxColumns - 1)
-    const toRow = Math.min(visual.anchor.toRow, maxRows - 1)
-    const toColumn = Math.min(visual.anchor.toColumn, maxColumns - 1)
+    const fromRow = Math.min(anchor.fromRow, maxRows - 1)
+    const fromColumn = Math.min(anchor.fromColumn, maxColumns - 1)
+    const toRow = Math.min(anchor.toRow, maxRows - 1)
+    const toColumn = Math.min(anchor.toColumn, maxColumns - 1)
     const range = worksheet.getRange(
       fromRow,
       fromColumn,
@@ -205,22 +238,20 @@ export function installWorkbookVisuals(
     // Pixel-exact frame (Excel twoCellAnchor semantics): each marker is a
     // cell plus an EMU offset inside it, so the box runs from the `from`
     // marker to the `to` marker — not across the whole cell range.
-    const columnWidth = (index: number): number => Math.max(worksheet.getColumnWidth(index), 1)
-    const rowHeight = (index: number): number => Math.max(worksheet.getRowHeight(index), 1)
-    const marginX = Math.max(0, visual.anchor.fromColumnOffset / EMU_PER_PIXEL)
-    const marginY = Math.max(0, visual.anchor.fromRowOffset / EMU_PER_PIXEL)
+    const marginX = Math.max(0, anchor.fromColumnOffset / EMU_PER_PIXEL)
+    const marginY = Math.max(0, anchor.fromRowOffset / EMU_PER_PIXEL)
     const width = markerSpan(
       { index: fromColumn, offset: marginX },
-      markerFrom(toColumn, visual.anchor.toColumnOffset),
+      markerFrom(toColumn, anchor.toColumnOffset),
       columnWidth,
     )
     const height = markerSpan(
       { index: fromRow, offset: marginY },
-      markerFrom(toRow, visual.anchor.toRowOffset),
+      markerFrom(toRow, anchor.toRowOffset),
       rowHeight,
     )
-    // Degenerate anchors (oneCellAnchor fallback parses to a zero span):
-    // keep the legacy behavior of filling the clamped cell range.
+    // A genuinely sizeless anchor (absoluteAnchor, or a oneCellAnchor with no
+    // usable extent) still falls back to filling the clamped cell range.
     const layout =
       width >= MIN_FRAME_PIXELS / 2 && height >= MIN_FRAME_PIXELS / 2
         ? { width, height, marginX, marginY }
@@ -564,63 +595,12 @@ const cornerNorth = (corner: ResizeCorner): boolean =>
 const cornerSouth = (corner: ResizeCorner): boolean =>
   corner === 'sw' || corner === 's' || corner === 'se'
 
-/// xlsx drawing offsets are EMU; 9525 EMU per CSS pixel at 96dpi.
-const EMU_PER_PIXEL = 9525
 /// Frames smaller than this collapse resize handles into each other.
 const MIN_FRAME_PIXELS = 24
 /// xlsx sheet limits: drags may leave the data-sized lazy grid (install
 /// grows it to the anchor), but never the real spreadsheet bounds.
 const XLSX_MAX_COLUMN = 16383
 const XLSX_MAX_ROW = 1048575
-
-/// One edge of a drawing anchor: a cell index plus a pixel offset inside
-/// that cell (the px equivalent of xlsx's `<xdr:col>` + `<xdr:colOff>`).
-interface AnchorMarker {
-  index: number
-  offset: number
-}
-
-const markerFrom = (index: number, offsetEmu: number): AnchorMarker => ({
-  index,
-  offset: offsetEmu / EMU_PER_PIXEL,
-})
-
-/// Move a marker by a pixel delta, carrying across real row/column sizes.
-/// Clamps at the sheet start and inside the last row/column.
-function walkMarker(
-  marker: AnchorMarker,
-  delta: number,
-  sizeOf: (index: number) => number,
-  maxIndex: number,
-): AnchorMarker {
-  let index = Math.min(marker.index, maxIndex)
-  let offset = marker.offset + delta
-  while (offset < 0 && index > 0) {
-    index -= 1
-    offset += sizeOf(index)
-  }
-  if (offset < 0) offset = 0
-  while (index < maxIndex && offset >= sizeOf(index)) {
-    offset -= sizeOf(index)
-    index += 1
-  }
-  if (index >= maxIndex) offset = Math.min(offset, sizeOf(maxIndex))
-  return { index, offset }
-}
-
-/// Pixel distance between two markers (negative when `to` sits before `from`).
-function markerSpan(
-  from: AnchorMarker,
-  to: AnchorMarker,
-  sizeOf: (index: number) => number,
-): number {
-  const span = to.offset - from.offset
-  const low = Math.min(from.index, to.index)
-  const high = Math.max(from.index, to.index)
-  let cells = 0
-  for (let index = low; index < high; index += 1) cells += sizeOf(index)
-  return span + (from.index <= to.index ? cells : -cells)
-}
 
 function EditableShapeVisual({
   file,

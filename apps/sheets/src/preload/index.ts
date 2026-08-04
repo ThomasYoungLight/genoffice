@@ -1999,6 +1999,11 @@ function parseDrawingAnchor(input: Record<string, unknown>): WorkbookVisualObjec
     fromColumnOffset: input.fromColumnOffset as number,
     toRowOffset: input.toRowOffset as number,
     toColumnOffset: input.toColumnOffset as number,
+    // Only a oneCellAnchor carries these, and only the renderer can use them
+    // (see resolveAnchorExtent). Anything non-positive is dropped rather than
+    // rejected: an absent extent just means "no size to recover".
+    ...(isPositiveInteger(input.extWidthEmu) ? { extWidthEmu: input.extWidthEmu } : {}),
+    ...(isPositiveInteger(input.extHeightEmu) ? { extHeightEmu: input.extHeightEmu } : {}),
   }
 }
 

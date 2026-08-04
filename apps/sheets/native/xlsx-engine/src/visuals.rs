@@ -99,6 +99,14 @@ pub struct DrawingAnchor {
     pub to_column: usize,
     pub to_row_offset: i64,
     pub to_column_offset: i64,
+    /// A oneCellAnchor states its size as an extent instead of a second
+    /// marker, so `to_*` above is only the `from` marker repeated. Turning an
+    /// extent into a marker needs the row heights and column widths, which
+    /// live in the renderer, so pass it through rather than guess here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ext_width_emu: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ext_height_emu: Option<i64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1002,7 +1010,18 @@ fn formula_ref(node: Node<'_, '_>) -> Option<String> {
 fn parse_anchor(anchor: Node<'_, '_>) -> Option<DrawingAnchor> {
     let from = direct_child(anchor, "from")?;
     let to = direct_child(anchor, "to").unwrap_or(from);
+    // Direct child only: a twoCellAnchor also contains an `ext`, but nested
+    // inside the frame's `xfrm`, and that one describes the graphic rather
+    // than the cell span.
+    let ext = direct_child(anchor, "ext");
+    let extent = |name: &str| {
+        ext.and_then(|node| node.attribute(name))
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|value| *value > 0)
+    };
     Some(DrawingAnchor {
+        ext_width_emu: extent("cx"),
+        ext_height_emu: extent("cy"),
         from_row: marker_value(from, "row")?,
         from_column: marker_value(from, "col")?,
         from_row_offset: marker_signed_value(from, "rowOff").unwrap_or(0),

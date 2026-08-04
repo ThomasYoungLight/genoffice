@@ -206,6 +206,13 @@ const drawingAnchorSchema = z
     toColumn: z.number().int().nonnegative(),
     toRowOffset: z.number().int(),
     toColumnOffset: z.number().int(),
+    /// A oneCellAnchor sizes itself with an extent instead of a second marker,
+    /// so the `to` fields above just repeat `from`. Only the renderer knows the
+    /// row heights and column widths that turn one into the other; see
+    /// resolveAnchorExtent. Absent on a twoCellAnchor, and never sent back on
+    /// an edit — those always carry both markers.
+    extWidthEmu: z.number().int().positive().optional(),
+    extHeightEmu: z.number().int().positive().optional(),
   })
   .strict()
 const visualObjectSchema = z
