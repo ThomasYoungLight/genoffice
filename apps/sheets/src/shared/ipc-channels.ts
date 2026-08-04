@@ -16,6 +16,10 @@ export const IPC_CHANNELS = {
   closeSaveRequest: 'workbook:close-save-request',
   closeSaveResult: 'workbook:close-save-result',
   exportPdf: 'workbook:export-pdf',
+  /** Raw OOXML escape hatch: list parts, read one, edit one */
+  rawParts: 'workbook:raw-parts',
+  rawGet: 'workbook:raw-get',
+  rawSet: 'workbook:raw-set',
   openExternal: 'shell:open-external',
   menuAction: 'menu:action',
   aiGetSettings: 'ai:get-settings',

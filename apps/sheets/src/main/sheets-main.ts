@@ -9,8 +9,9 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
+import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 
 import {
@@ -72,7 +73,19 @@ import {
 } from '@genoffice/ai-search'
 import { parseFileToText } from '@genoffice/file-parse'
 import type { CellEdit, SheetStructuralOps } from '../gateway/xlsx-gateway'
-import { readArchiveEntryText, saveWorkbookViaSidecar } from '../gateway/xlsx-package-io'
+import {
+  readArchiveEntryText,
+  readArchiveManifest,
+  saveWorkbookViaSidecar,
+} from '../gateway/xlsx-package-io'
+import {
+  applyRawEdit,
+  checkRawPartSize,
+  listRawParts,
+  resolveRawPartRef,
+  sheetPathsInOrder,
+  type RawArchiveView,
+} from '../gateway/xlsx-raw'
 import { parsePivotDefinition } from '../gateway/xlsx-pivot'
 import type { SheetEditPlan } from '../gateway/xlsx-sheets'
 import type {
@@ -101,6 +114,10 @@ import {
   workbookPivotDefinitionSchema,
   workbookExportPdfRequestSchema,
   workbookRangeRequestSchema,
+  workbookRawGetRequestSchema,
+  workbookRawPartsRequestSchema,
+  workbookRawPartsResultSchema,
+  workbookRawSetRequestSchema,
   workbookRangeResultSchema,
   workbookSaveRequestSchema,
   type WorkbookSaveRequest,
@@ -1012,6 +1029,10 @@ interface SessionInfo {
   /// The converted copy came from a CSV: the Save As dialog explains that
   /// formatting requires .xlsx (CSV keeps values only).
   readonly csvImport?: boolean
+  /// Accepted raw OOXML edits, entry name -> XML, applied at save. Mutable and
+  /// deliberately shared by reference through the `{...session}` copies rename
+  /// and Save As make, so an edit is not silently dropped by a rename.
+  readonly rawParts: Map<string, string>
 }
 
 // ---- runtime configuration (paths differ when bundled into the shell) ----
@@ -1278,6 +1299,78 @@ function startCaptureServer(): void {
       })
   })
   server.listen(Number(debugPort) + 1, '127.0.0.1')
+}
+
+/// Entry list plus worksheet paths in workbook order, read through any raw
+/// edits already accepted — so `/sheet[2]` still resolves after a raw edit to
+/// workbook.xml reordered the tabs.
+async function rawArchiveView(
+  client: XlsxSidecarClient,
+  session: SessionInfo,
+): Promise<RawArchiveView> {
+  const entries = await readArchiveManifest(client, session.path)
+  const read = async (name: string): Promise<string> =>
+    session.rawParts.get(name) ?? (await readArchiveEntryText(client, session.path, name))
+  let sheetPaths: string[]
+  try {
+    sheetPaths = sheetPathsInOrder(
+      await read('xl/workbook.xml'),
+      await read('xl/_rels/workbook.xml.rels'),
+    )
+  } catch {
+    // a package without a readable workbook part still lists its entries; the
+    // short names for sheets are what go missing, not the whole listing
+    sheetPaths = []
+  }
+  return { entries, sheetPaths }
+}
+
+/// The fourth gate. Materialize the candidate package and make the sidecar
+/// read it: `open` parses the workbook and its styles, and one `read_range`
+/// proves a sheet is still reachable. A throw anywhere means the edit is
+/// discarded — the alternative is a workbook that saves and then will not open.
+async function verifyWorkbookStillReads(
+  client: XlsxSidecarClient,
+  sourcePath: string,
+  rawParts: ReadonlyMap<string, string>,
+): Promise<string | null> {
+  const workDir = await mkdtemp(join(tmpdir(), 'ai-excel-rawcheck-'))
+  try {
+    const replacements: { name: string; contentPath: string }[] = []
+    let index = 0
+    for (const [name, xml] of rawParts) {
+      const contentPath = join(workDir, `raw-${index}.bin`)
+      index += 1
+      await writeFile(contentPath, xml, 'utf8')
+      replacements.push({ name, contentPath })
+    }
+    const candidate = join(workDir, 'candidate.xlsx')
+    await client.saveArchive({
+      sourcePath,
+      targetPath: candidate,
+      replacements,
+      removals: [],
+      additions: [],
+    })
+    const opened = sidecarOpenResultSchema.parse(await client.open(candidate))
+    try {
+      const first = opened.sheets[0]
+      if (first) {
+        await client.readRange({
+          sessionId: opened.sessionId,
+          sheetId: first.id,
+          range: { startRow: 0, endRow: 0, startColumn: 0, endColumn: 0 },
+        })
+      }
+    } finally {
+      await client.close(opened.sessionId)
+    }
+    return null
+  } catch (error: unknown) {
+    return error instanceof Error ? error.message : String(error)
+  } finally {
+    await rm(workDir, { recursive: true, force: true })
+  }
 }
 
 const sidecarOpenResultSchema = workbookFileSchema.omit({
@@ -1792,6 +1885,72 @@ export function registerSheetsIpc(): void {
       readArchiveEntryText(entry.client, session.path, request.cachePath),
     ])
     return workbookPivotDefinitionSchema.parse(parsePivotDefinition(pivotXml, cacheXml))
+  })
+
+  // ---- raw OOXML escape hatch (gates in gateway/xlsx-raw.ts) ----------------
+
+  ipcMain.handle(IPC_CHANNELS.rawParts, async (event, input: unknown) => {
+    const entry = sessionFor(event)
+    const request = workbookRawPartsRequestSchema.parse(input)
+    const session = entry.sessions.get(request.sessionId)
+    if (!session) throw new Error('Unknown workbook session.')
+    const view = await rawArchiveView(entry.client, session)
+    return workbookRawPartsResultSchema.parse({ parts: listRawParts(view) })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.rawGet, async (event, input: unknown) => {
+    const entry = sessionFor(event)
+    const request = workbookRawGetRequestSchema.parse(input)
+    const session = entry.sessions.get(request.sessionId)
+    if (!session) throw new Error('Unknown workbook session.')
+    const view = await rawArchiveView(entry.client, session)
+    const path = resolveRawPartRef(view, request.ref)
+    if (!path) return { ok: false as const, error: `No part matches "${request.ref}"` }
+    const pending = session.rawParts.get(path)
+    if (pending !== undefined) return { ok: true as const, path, xml: pending }
+    const bytes = view.entries.find((e) => e.name === path)?.uncompressedSize ?? 0
+    const tooBig = checkRawPartSize(path, bytes)
+    if (tooBig) return { ok: false as const, error: tooBig }
+    return {
+      ok: true as const,
+      path,
+      xml: await readArchiveEntryText(entry.client, session.path, path),
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.rawSet, async (event, input: unknown) => {
+    const entry = sessionFor(event)
+    const request = workbookRawSetRequestSchema.parse(input)
+    const session = entry.sessions.get(request.sessionId)
+    if (!session) throw new Error('Unknown workbook session.')
+    const view = await rawArchiveView(entry.client, session)
+    const path = resolveRawPartRef(view, request.ref)
+    if (!path) return { ok: false as const, error: `No part matches "${request.ref}"` }
+    const bytes = view.entries.find((e) => e.name === path)?.uncompressedSize ?? 0
+    const tooBig = checkRawPartSize(path, bytes)
+    if (tooBig) return { ok: false as const, error: tooBig }
+
+    // an earlier accepted edit is the base for this one, so two edits to the
+    // same part compose instead of the second reverting the first
+    const before =
+      session.rawParts.get(path) ?? (await readArchiveEntryText(entry.client, session.path, path))
+    const edited = applyRawEdit(path, before, request.find, request.replace)
+    if (!edited.ok) return { ok: false as const, error: edited.error }
+
+    // Fourth gate: the slides engine re-parses affected slides in memory, which
+    // has no equivalent here, so the candidate goes through the sidecar's own
+    // reader. Nothing is kept unless the workbook still opens and reads.
+    const candidate = new Map(session.rawParts)
+    candidate.set(path, edited.xml)
+    const failure = await verifyWorkbookStillReads(entry.client, session.path, candidate)
+    if (failure) {
+      return {
+        ok: false as const,
+        error: `The edit left the workbook unreadable, so it was discarded: ${failure}`,
+      }
+    }
+    session.rawParts.set(path, edited.xml)
+    return { ok: true as const, path }
   })
 
   ipcMain.handle(IPC_CHANNELS.exportPdf, async (event, input: unknown) => {
@@ -2502,6 +2661,9 @@ async function writeWorkbookTo(
     sourcePath: session.path,
     targetPath,
     edits,
+    // Raw OOXML edits already passed their gates when they were accepted; the
+    // save overlays them before planning so model edits compose on top.
+    ...(session.rawParts.size ? { rawParts: session.rawParts } : {}),
     structuralOps,
     chartEdits: request.chartEdits,
     // Located by package-absolute drawingPath, so no sheet-name mapping.
@@ -2555,6 +2717,7 @@ async function openWorkbookSession(
     path,
     sha256: digest,
     sheetNames: new Map(opened.sheets.map((sheet) => [sheet.id, sheet.name])),
+    rawParts: new Map(),
     ...(suggestSaveAs === undefined ? {} : { suggestSaveAs }),
     ...(csvImport ? { csvImport } : {}),
   })

@@ -961,6 +961,8 @@ export function App(): React.JSX.Element {
   }
 
   function sheetsSkillDeps(): SheetsSkillDeps {
+    // no session means no file on disk to reach past the model
+    const sessionId = workbookFile?.sessionId
     return {
       getActiveSheetInfo,
       ensureRangeLoaded: async (range) => {
@@ -975,6 +977,17 @@ export function App(): React.JSX.Element {
       readFormats: (addresses) => readFormatsImpl(readContext(), addresses),
       readSheetFeatures: (sheetId) => readSheetFeaturesImpl(readContext(), sheetId),
       proposeOperations,
+      ...(sessionId
+        ? {
+            raw: {
+              list: async () =>
+                (await window.desktopApi.listRawParts({ sessionId })).parts,
+              read: (ref: string) => window.desktopApi.readRawPart({ sessionId, ref }),
+              edit: (ref: string, find: string, replace: string) =>
+                window.desktopApi.editRawPart({ sessionId, ref, find, replace }),
+            },
+          }
+        : {}),
     }
   }
 

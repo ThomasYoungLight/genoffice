@@ -26,7 +26,7 @@ import type {
   SheetVisualAddition,
   SheetFormulaValues,
 } from './xlsx-gateway'
-import { planCellEditsToXlsx } from './xlsx-gateway'
+import { NoPlannableEditsError, planCellEditsToXlsx } from './xlsx-gateway'
 import type { SheetEditPlan } from './xlsx-sheets'
 
 /// Mirrors the sidecar's per-entry extraction cap: only entries the gateway
@@ -100,12 +100,27 @@ export interface StreamingSaveRequest {
   readonly sparklineAdditions?: readonly SheetSparklineAddition[] | undefined
   /// Recalculated formula-cell values written into <v> (issue #166)
   readonly formulaValues?: readonly SheetFormulaValues[] | undefined
+  /// Verbatim part contents from raw OOXML edits, entry name -> XML. They are
+  /// overlaid on the source *before* planning, so model edits to the same part
+  /// compose on top of the raw text rather than racing it, and they are forced
+  /// into the replacement set afterwards so a part the planner never touched is
+  /// still written.
+  readonly rawParts?: ReadonlyMap<string, string> | undefined
 }
 
 export interface StreamingSaveResult {
   readonly touchedEntries: readonly string[]
   readonly removedEntries: readonly string[]
   readonly addedEntries: readonly string[]
+}
+
+/// Entry manifest for a workbook on disk, parsed. Exposed because the raw
+/// OOXML tools need the entry list and sizes without planning a save.
+export async function readArchiveManifest(
+  client: ArchiveClient,
+  sourcePath: string,
+): Promise<ArchiveEntry[]> {
+  return manifestResultSchema.parse(await client.archiveManifest(sourcePath)).entries
 }
 
 /// One-shot text read of an archive entry via the sidecar (extract to a
@@ -140,32 +155,55 @@ export async function saveWorkbookViaSidecar(
     const manifest = manifestResultSchema.parse(
       await request.client.archiveManifest(request.sourcePath),
     ).entries
-    const source = createSidecarEntrySource(request.client, request.sourcePath, manifest, workDir)
-    const plan = await planCellEditsToXlsx(
-      source,
-      request.edits,
-      request.structuralOps ?? [],
-      request.chartEdits ?? [],
-      request.sheetPlan,
-      request.filterStates ?? [],
-      request.hyperlinkEdits ?? [],
-      request.cfStates ?? [],
-      request.dvStates ?? [],
-      request.sheetProtections ?? [],
-      request.definedNamesState ?? null,
-      request.visualAdditions ?? [],
-      request.pageSetupStates ?? [],
-      request.noteStates ?? [],
-      request.tableAdditions ?? [],
-      request.pivotAdditions ?? [],
-      request.pivotCacheRefreshPaths ?? [],
-      request.pivotRefreshUpdates ?? [],
-      request.visualEdits ?? [],
-      request.sparklineAdditions ?? [],
-      request.formulaValues ?? [],
+    const source = overlayRawParts(
+      createSidecarEntrySource(request.client, request.sourcePath, manifest, workDir),
+      request.rawParts,
     )
+    let plan: MutationPlan
+    try {
+      plan = await planCellEditsToXlsx(
+        source,
+        request.edits,
+        request.structuralOps ?? [],
+        request.chartEdits ?? [],
+        request.sheetPlan,
+        request.filterStates ?? [],
+        request.hyperlinkEdits ?? [],
+        request.cfStates ?? [],
+        request.dvStates ?? [],
+        request.sheetProtections ?? [],
+        request.definedNamesState ?? null,
+        request.visualAdditions ?? [],
+        request.pageSetupStates ?? [],
+        request.noteStates ?? [],
+        request.tableAdditions ?? [],
+        request.pivotAdditions ?? [],
+        request.pivotCacheRefreshPaths ?? [],
+        request.pivotRefreshUpdates ?? [],
+        request.visualEdits ?? [],
+        request.sparklineAdditions ?? [],
+        request.formulaValues ?? [],
+      )
+    } catch (error: unknown) {
+      // A save whose only content is a raw OOXML overlay gives the planner
+      // nothing to do. That is not a failed save — the overlay is written
+      // below regardless — so an empty plan stands in for it.
+      if (!(error instanceof NoPlannableEditsError) || !request.rawParts?.size) throw error
+      plan = {
+        replaced: new Map(),
+        added: new Map(),
+        addedBinary: new Map(),
+        removedEntries: [],
+        addedEntries: [],
+        touchedEntries: [],
+      }
+    }
 
-    const replacements = await writePlanContents(workDir, 'replace', plan.replaced)
+    // The planner read through the overlay, so where it also rewrote a
+    // raw-edited part its version already contains the raw text and wins.
+    const replaced = new Map<string, string>(request.rawParts ?? [])
+    for (const [name, content] of plan.replaced) replaced.set(name, content)
+    const replacements = await writePlanContents(workDir, 'replace', replaced)
     const additions = [
       ...(await writePlanContents(workDir, 'add', plan.added)),
       ...(await writePlanContents(workDir, 'add-bin', plan.addedBinary)),
@@ -185,11 +223,11 @@ export async function saveWorkbookViaSidecar(
     if (!manifestsEqual(manifest, result.beforeEntries)) {
       throw new Error('The workbook changed on disk while saving — aborted.')
     }
-    assertManifestPreserved(plan, result.beforeEntries, result.afterEntries)
+    assertManifestPreserved({ ...plan, replaced }, result.beforeEntries, result.afterEntries)
 
     await promoteFileAtomically(temporaryTarget, request.targetPath)
     return {
-      touchedEntries: plan.touchedEntries,
+      touchedEntries: [...new Set([...plan.touchedEntries, ...(request.rawParts?.keys() ?? [])])],
       removedEntries: plan.removedEntries,
       addedEntries: plan.addedEntries,
     }
@@ -244,6 +282,29 @@ function createSidecarEntrySource(
       cache.set(path, content)
       return content
     },
+  }
+}
+
+/// Makes raw-edited parts read as their edited text, so any later planning
+/// stage that rewrites the same part starts from the edit instead of silently
+/// discarding it.
+function overlayRawParts(
+  source: EntrySource,
+  rawParts: ReadonlyMap<string, string> | undefined,
+): EntrySource {
+  if (!rawParts?.size) return source
+  const base = source.containsText?.bind(source)
+  return {
+    ...source,
+    readText: async (path) => rawParts.get(path) ?? (await source.readText(path)),
+    ...(base
+      ? {
+          containsText: async (path: string, needle: string) => {
+            const raw = rawParts.get(path)
+            return raw === undefined ? base(path, needle) : raw.includes(needle)
+          },
+        }
+      : {}),
   }
 }
 

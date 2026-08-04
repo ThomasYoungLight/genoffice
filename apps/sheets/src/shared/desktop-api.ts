@@ -1509,6 +1509,43 @@ export const workbookPivotRequestSchema = z
   })
   .strict()
 
+/// Raw OOXML escape hatch. `ref` is a short name (/styles, /sheet[2]) or a
+/// literal entry name, so it is deliberately looser than the pivot part paths.
+export const workbookRawPartsRequestSchema = z
+  .object({ sessionId: z.string().uuid() })
+  .strict()
+
+export const workbookRawPartsResultSchema = z
+  .object({
+    parts: z.array(
+      z.object({ path: z.string(), ref: z.string().optional(), bytes: z.number().int() }),
+    ),
+  })
+  .strict()
+
+export const workbookRawGetRequestSchema = z
+  .object({ sessionId: z.string().uuid(), ref: z.string().min(1).max(256) })
+  .strict()
+
+export const workbookRawGetResultSchema = z
+  .object({ ok: z.literal(true), path: z.string(), xml: z.string() })
+  .strict()
+  .or(z.object({ ok: z.literal(false), error: z.string() }).strict())
+
+export const workbookRawSetRequestSchema = z
+  .object({
+    sessionId: z.string().uuid(),
+    ref: z.string().min(1).max(256),
+    find: z.string().min(1).max(200_000),
+    replace: z.string().max(200_000),
+  })
+  .strict()
+
+export const workbookRawSetResultSchema = z
+  .object({ ok: z.literal(true), path: z.string() })
+  .strict()
+  .or(z.object({ ok: z.literal(false), error: z.string() }).strict())
+
 const pivotLayoutLineSchema = z
   .object({
     t: z.string().max(32),
@@ -1666,6 +1703,12 @@ export type WorkbookRecalcRequest = z.infer<typeof workbookRecalcRequestSchema>
 export type WorkbookRecalcResult = z.infer<typeof workbookRecalcResultSchema>
 export type WorkbookMediaRequest = z.infer<typeof workbookMediaRequestSchema>
 export type WorkbookMediaResult = z.infer<typeof workbookMediaResultSchema>
+export type WorkbookRawPartsRequest = z.infer<typeof workbookRawPartsRequestSchema>
+export type WorkbookRawPartsResult = z.infer<typeof workbookRawPartsResultSchema>
+export type WorkbookRawGetRequest = z.infer<typeof workbookRawGetRequestSchema>
+export type WorkbookRawGetResult = z.infer<typeof workbookRawGetResultSchema>
+export type WorkbookRawSetRequest = z.infer<typeof workbookRawSetRequestSchema>
+export type WorkbookRawSetResult = z.infer<typeof workbookRawSetResultSchema>
 export type WorkbookPivotRequest = z.infer<typeof workbookPivotRequestSchema>
 export type WorkbookPivotDefinition = z.infer<typeof workbookPivotDefinitionSchema>
 export type LocalImageRequest = z.infer<typeof localImageRequestSchema>
@@ -1896,6 +1939,10 @@ export interface DesktopApi {
   recalcWorkbook(request: WorkbookRecalcRequest): Promise<WorkbookRecalcResult>
   readWorkbookMedia(request: WorkbookMediaRequest): Promise<WorkbookMediaResult>
   readPivotDefinition(request: WorkbookPivotRequest): Promise<WorkbookPivotDefinition>
+  /// Raw OOXML escape hatch (see gateway/xlsx-raw.ts for the gates).
+  listRawParts(request: WorkbookRawPartsRequest): Promise<WorkbookRawPartsResult>
+  readRawPart(request: WorkbookRawGetRequest): Promise<WorkbookRawGetResult>
+  editRawPart(request: WorkbookRawSetRequest): Promise<WorkbookRawSetResult>
   readLocalImage(request: LocalImageRequest): Promise<LocalImageResult>
   saveWorkbookEdits(request: WorkbookSaveRequest): Promise<WorkbookSaveResult>
   /// Crash-recovery copy of the pending edits, written under userData.

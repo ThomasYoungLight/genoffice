@@ -74,6 +74,17 @@ export interface SheetsSkillDeps {
     operations: readonly WorkbookOperation[],
     summary: string,
   ): { ok: true; plan: ChangePlan } | { ok: false; error: string }
+  /// Raw OOXML escape hatch, absent when no workbook session is open. The
+  /// gates and the part resolution live in the main process; this is transport.
+  raw?: {
+    list(): Promise<readonly { path: string; ref?: string | undefined; bytes: number }[]>
+    read(ref: string): Promise<{ ok: true; path: string; xml: string } | { ok: false; error: string }>
+    edit(
+      ref: string,
+      find: string,
+      replace: string,
+    ): Promise<{ ok: true; path: string } | { ok: false; error: string }>
+  }
 }
 
 const MAX_READ_ADDRESSES = 100
@@ -201,6 +212,40 @@ export const WORKBOOK_TOOLS: AgentToolDef[] = [
         summary: { type: 'string', description: 'One-sentence summary of this batch of changes' },
       },
       required: ['operations', 'summary'],
+    },
+  },
+  {
+    name: 'read_raw_xml',
+    description:
+      'Read the workbook\'s underlying OOXML. Call with no argument to list the XML parts and their short names; pass part to get one part\'s text. ' +
+      'This is the escape hatch for settings the operations cannot express — everything the DSL does cover should go through propose_operations, which keeps the grid and the file in step.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        part: {
+          type: 'string',
+          description:
+            'Short name (/workbook, /styles, /sharedStrings, /theme, /contentTypes, /sheet[N] in tab order) or a literal entry name such as xl/_rels/workbook.xml.rels',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'edit_raw_xml',
+    description:
+      'Replace one exact occurrence of find with replace inside an OOXML part. find must match exactly once — include surrounding text to make it unique. ' +
+      'The edit is refused if the result is not well-formed XML or if the workbook stops opening, and it is applied to the file when the workbook is saved. ' +
+      'The grid does not change: raw edits bypass the model the grid renders from, so anything the operations can express belongs in propose_operations instead. ' +
+      'Say what you changed and why in your reply — nothing else records it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        part: { type: 'string', description: 'Short name or literal entry name, as read_raw_xml lists' },
+        find: { type: 'string', description: 'Exact text to replace; must occur exactly once' },
+        replace: { type: 'string', description: 'Replacement text; empty string deletes the match' },
+      },
+      required: ['part', 'find', 'replace'],
     },
   },
 ]
@@ -332,6 +377,62 @@ function formatPlanSummary(plan: ChangePlan): string {
     parts.push(plan.sheetRenames.map((r) => `sheet ${r.before} → ${r.after}`).join('; '))
   }
   return parts.join(' | ') || '(no changes)'
+}
+
+/// Raw OOXML reads. Split out because the dispatcher is synchronous for every
+/// tool that does not have to cross the IPC boundary.
+async function readRawXmlTool(
+  call: AgentToolCall,
+  deps: SheetsSkillDeps,
+): Promise<ToolExecution> {
+
+      if (!deps.raw) return fail(t('aiToolRawXml'), 'No workbook is open')
+      const ref = typeof call.input.part === 'string' ? call.input.part.trim() : ''
+      if (!ref) {
+        const parts = await deps.raw.list()
+        const list = parts
+          .map((p) => `${p.ref ? `${p.ref}  ` : ''}${p.path}  (${Math.round(p.bytes / 100) / 10} KB)`)
+          .join('\n')
+        return {
+          output: `${parts.length} XML parts:\n${list}`,
+          mutated: false,
+          summary: t('aiToolRawXml'),
+        }
+      }
+      const result = await deps.raw.read(ref)
+      if (!result.ok) return fail(t('aiToolRawXml'), result.error)
+      return {
+        output: `${result.path}:\n${result.xml}`,
+        mutated: false,
+        summary: t('aiToolRawXml'),
+      }
+    
+}
+
+async function editRawXmlTool(
+  call: AgentToolCall,
+  deps: SheetsSkillDeps,
+): Promise<ToolExecution> {
+
+      if (!deps.raw) return fail(t('aiToolRawXmlEdit'), 'No workbook is open')
+      const ref = typeof call.input.part === 'string' ? call.input.part.trim() : ''
+      const find = typeof call.input.find === 'string' ? call.input.find : ''
+      const replace = typeof call.input.replace === 'string' ? call.input.replace : ''
+      if (!ref) return fail(t('aiToolRawXmlEdit'), 'part is required')
+      if (!find) return fail(t('aiToolRawXmlEdit'), 'find must not be empty')
+      const result = await deps.raw.edit(ref, find, replace)
+      if (!result.ok) return fail(t('aiToolRawXmlEdit'), result.error)
+      return {
+        // the grid renders from the model the sidecar built when the file was
+        // opened, and a raw edit never reaches it — saying so is the whole
+        // difference between an escape hatch and a trap
+        output:
+          `Edited ${result.path}. It is applied when the workbook is saved; the grid still shows ` +
+          `the pre-edit model, so do not expect read_range to reflect this.`,
+        mutated: true,
+        summary: t('aiToolRawXmlEdit'),
+      }
+    
 }
 
 export function executeWorkbookTool(
@@ -502,6 +603,12 @@ export function executeWorkbookTool(
         summary: t('aiToolReadCellsCount', { count: addresses.length }),
       }
     }
+
+    case 'read_raw_xml':
+      return readRawXmlTool(call, deps)
+
+    case 'edit_raw_xml':
+      return editRawXmlTool(call, deps)
 
     case 'propose_operations': {
       const rawOps = call.input.operations

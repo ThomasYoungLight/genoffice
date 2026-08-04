@@ -21,7 +21,7 @@ cannot do.
 
 | #   | Item                                   | Blocked on                              |
 | --- | -------------------------------------- | --------------------------------------- |
-| 1   | Raw OOXML for docs and sheets          | save-path design, per format            |
+| 1   | Raw OOXML for docs (sheets: **done**)  | save-path design, per format            |
 | 2   | Sheets slicers, page breaks, rich text | new engine + sidecar support            |
 | 3   | Docs caption and index fields          | nothing; small                          |
 | 4   | OLE, Zoom links, threaded comments, …  | nothing; low value (recommend: decline) |
@@ -487,14 +487,53 @@ before writing down a risk, and check the application before believing the code.
 **Done when:** each row has been opened in its application, the PDF checked, and
 either fixed or recorded as verified. Expect this to find more than one bug.
 
-### Step 1 — Sheets raw (small)
+### ~~Step 1 — Sheets raw (small)~~ — done
 
-Wire `raw-parts` / `raw-get` / `raw-set` onto the sidecar's existing archive
-commands, port the validation chain from `pptx-engine/src/raw.ts`, add the
-sidecar-reader round-trip gate and the Univer re-read.
+`workbook:raw-parts` / `raw-get` / `raw-set` sit on the sidecar's archive
+commands; `gateway/xlsx-raw.ts` holds the three string gates ported from
+`pptx-engine/src/raw.ts`, and the main process adds the fourth by making the
+sidecar open a candidate package and read a range from it. Accepted edits live
+on the session as an overlay and are applied at save.
 
-**Done when:** the four gates are tested, a raw edit survives save/reopen, the
-grid does not show stale values, and the result opens in Excel.
+Two things came out of building it that the plan did not anticipate.
+
+**The overlay has to go in before planning, not after.** A raw edit and a model
+edit can land on the same worksheet part, and whichever was applied second would
+have discarded the other. The overlay now wraps the entry source, so the planner
+reads the raw text and layers its own rewrite on top; the raw map is then forced
+into the replacement set so a part the planner never touched is still written.
+A save whose only content is a raw edit used to throw "There are no edits to
+save" — the planner's emptiness guard is now a typed `NoPlannableEditsError` the
+save path can tell apart from a real failure.
+
+**The Univer divergence was resolved by saying so, not by re-reading.** The plan
+preferred re-reading the affected sheet. That is not possible: the sidecar
+session is open on the file as it was, and a raw edit is a pending overlay
+applied at save, so a re-read would return pre-edit content — worse than
+silence, because it looks authoritative. The tool result says plainly that the
+grid still shows the pre-edit model and that `read_range` will not reflect the
+change, and `read_raw_xml` returns the pending text so the agent's own view is
+at least self-consistent.
+
+**Done:** all four gates tested (the fourth against the real sidecar, refusing a
+workbook.xml edit that is well-formed but points at a missing relationship), a
+raw edit composes with a model edit and survives the save, and the result opens
+in Excel with no repair prompt.
+
+#### A pre-existing bug this turned up
+
+The first Excel check said "raw3.xlsx — Repaired". The cause was not the escape
+hatch. `CT_Worksheet` fixes the order `sheetPr, dimension, …`, and the gateway
+inserted a missing `<dimension>` immediately after the `<worksheet>` open tag —
+so **any** worksheet carrying a `sheetPr` but no `dimension` of its own came out
+in the wrong order and Excel repaired the file. A tab colour is enough to
+trigger it; the raw-edit demo just happened to be the first thing that produced
+that shape. The insertion now goes after `sheetPr` when one is present.
+
+Worth recording alongside it: **the fourth gate does not catch this.** The
+sidecar read the mis-ordered part happily. The gate proves the workbook still
+parses for us, not that Excel will accept it — which is exactly the residual
+risk the section below describes, now with a concrete example.
 
 ### Step 2 — Sheets rich text (medium)
 

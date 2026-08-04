@@ -23,6 +23,9 @@ import type {
   WorkbookPivotDefinition,
   WorkbookPivotRequest,
   WorkbookRangeRequest,
+  WorkbookRawGetResult,
+  WorkbookRawPartsResult,
+  WorkbookRawSetResult,
   WorkbookRangeResult,
   WorkbookRecalcRequest,
   WorkbookRecalcResult,
@@ -105,6 +108,34 @@ const desktopApi: DesktopApi = {
       validatedRequest,
     )
     return parsePivotDefinitionResult(result)
+  },
+  async listRawParts(request) {
+    if (!isRecord(request) || !isUuid(request.sessionId)) throw new Error('Invalid raw request.')
+    const result: unknown = await ipcRenderer.invoke(IPC_CHANNELS.rawParts, request)
+    if (!isRecord(result) || !Array.isArray(result.parts)) throw new Error('Invalid raw parts.')
+    return result as WorkbookRawPartsResult
+  },
+  async readRawPart(request) {
+    if (!isRecord(request) || !isUuid(request.sessionId) || !isRawRef(request.ref)) {
+      throw new Error('Invalid raw read request.')
+    }
+    const result: unknown = await ipcRenderer.invoke(IPC_CHANNELS.rawGet, request)
+    if (!isRecord(result) || typeof result.ok !== 'boolean') throw new Error('Invalid raw read.')
+    return result as WorkbookRawGetResult
+  },
+  async editRawPart(request) {
+    if (
+      !isRecord(request) ||
+      !isUuid(request.sessionId) ||
+      !isRawRef(request.ref) ||
+      typeof request.find !== 'string' ||
+      typeof request.replace !== 'string'
+    ) {
+      throw new Error('Invalid raw edit request.')
+    }
+    const result: unknown = await ipcRenderer.invoke(IPC_CHANNELS.rawSet, request)
+    if (!isRecord(result) || typeof result.ok !== 'boolean') throw new Error('Invalid raw edit.')
+    return result as WorkbookRawSetResult
   },
   async saveWorkbookEdits(request) {
     const validatedRequest = parseSaveRequest(request)
@@ -1745,6 +1776,12 @@ function parsePivotTableInfos(
     }
     return { path: entry.path, cachePath: entry.cachePath, outputRef: entry.outputRef }
   })
+}
+
+/// A raw part reference: a short name (/styles, /sheet[2]) or a literal entry
+/// name. Deliberately looser than a part path — the main process resolves it.
+function isRawRef(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 256
 }
 
 function parsePivotRequest(input: WorkbookPivotRequest): WorkbookPivotRequest {

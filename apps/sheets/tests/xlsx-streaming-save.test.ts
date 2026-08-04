@@ -25,6 +25,71 @@ describe('saveWorkbookViaSidecar', () => {
     await rm(directory, { recursive: true, force: true })
   })
 
+  /**
+   * Raw OOXML edits are an overlay applied at save. The two things that can go
+   * wrong are the part not being written at all (the planner never touched it,
+   * so it is absent from plan.replaced) and a raw edit racing a model edit to
+   * the same part, where one silently discards the other.
+   */
+  it('writes a raw part the planner never touched, and preserves the rest', async () => {
+    const sourcePath = join(directory, 'raw-source.xlsx')
+    const targetPath = join(directory, 'raw-saved.xlsx')
+    const sourceBuffer = await buildEditFixture()
+    await writeFile(sourcePath, sourceBuffer)
+
+    const result = await saveWorkbookViaSidecar({
+      client,
+      sourcePath,
+      targetPath,
+      edits: [],
+      rawParts: new Map([
+        ['xl/styles.xml', '<?xml version="1.0"?>\n<styleSheet xmlns="x"><marker/></styleSheet>'],
+      ]),
+    })
+
+    expect(result.touchedEntries).toContain('xl/styles.xml')
+    const savedZip = await JSZip.loadAsync(await readFile(targetPath))
+    expect(await savedZip.file('xl/styles.xml')?.async('text')).toContain('<marker/>')
+    // the escape hatch must not disturb anything it was not pointed at
+    const sourceZip = await JSZip.loadAsync(sourceBuffer)
+    expect(Object.keys(savedZip.files).sort()).toEqual(Object.keys(sourceZip.files).sort())
+    expect(await savedZip.file('customXml/item1.xml')?.async('text')).toBe(
+      await sourceZip.file('customXml/item1.xml')?.async('text'),
+    )
+  })
+
+  it('composes a raw edit with a model edit to the same part', async () => {
+    const sourcePath = join(directory, 'raw-both-source.xlsx')
+    const targetPath = join(directory, 'raw-both-saved.xlsx')
+    await writeFile(sourcePath, await buildEditFixture())
+
+    // the planner reads through the overlay, so its rewrite of sheet1 starts
+    // from the raw text instead of the bytes on disk
+    const rawSheet =
+      '<?xml version="1.0" encoding="UTF-8"?>\n' +
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">\n' +
+      '  <sheetPr><tabColor rgb="FFFF0000"/></sheetPr>\n' +
+      '  <sheetData>\n' +
+      '    <row r="1"><c r="A1" t="s" s="1"><v>0</v></c><c r="C1"><v>5</v></c></row>\n' +
+      '  </sheetData>\n' +
+      '</worksheet>'
+
+    await saveWorkbookViaSidecar({
+      client,
+      sourcePath,
+      targetPath,
+      edits: [{ sheetName: 'Data', row: 0, column: 0, writeValue: true, cell: { value: 'World' } }],
+      rawParts: new Map([['xl/worksheets/sheet1.xml', rawSheet]]),
+    })
+
+    const saved = await (await JSZip.loadAsync(await readFile(targetPath)))
+      .file('xl/worksheets/sheet1.xml')
+      ?.async('text')
+    // both survive: neither overwrote the other
+    expect(saved).toContain('<tabColor rgb="FFFF0000"/>')
+    expect(saved).toContain('World')
+  })
+
   it('saves a cell edit while raw-copying every untouched entry byte-for-byte', async () => {
     const sourcePath = join(directory, 'source.xlsx')
     const targetPath = join(directory, 'saved.xlsx')

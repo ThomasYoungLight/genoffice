@@ -188,6 +188,16 @@ export interface EntrySource {
   containsText?(path: string, needle: string): Promise<boolean>
 }
 
+/// Nothing in this request is the planner's to do. Typed rather than a bare
+/// Error so a caller with work of its own — a raw OOXML overlay, say — can tell
+/// "the planner has nothing to add" apart from "the save failed".
+export class NoPlannableEditsError extends Error {
+  constructor() {
+    super('There are no edits to save.')
+    this.name = 'NoPlannableEditsError'
+  }
+}
+
 /// The entry-level outcome of patch planning: what an assembler (in-memory
 /// JSZip or the sidecar streaming writer) must replace, add, and drop.
 export interface MutationPlan {
@@ -605,7 +615,7 @@ export async function planCellEditsToXlsx(
     visualEdits.length === 0 &&
     sparklineAdditions.length === 0
   ) {
-    throw new Error('There are no edits to save.')
+    throw new NoPlannableEditsError()
   }
   // A pending pivot pins final coordinates for its source and output; shifts
   // on either sheet, and sheet renames (worksheetSource@sheet), would desync
