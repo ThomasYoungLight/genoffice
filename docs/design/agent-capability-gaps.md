@@ -246,7 +246,7 @@ fragile the markup is, not by how recently it shipped:
 | ~~1~~    | ~~Slide transitions and animations~~               | `4575901`            | **Done.** Animations pass; morph was broken by a wrong namespace URI, now fixed                 |
 | ~~2~~    | ~~Sheets icon-set / aboveAverage / timePeriod CF~~ | `cea0bd3`            | **Done.** Icons and aboveAverage correct; timePeriod could not be saved at all, now implemented |
 | ~~3~~    | ~~Docs formulas in Word~~                          | `9b4ec40`            | **Done.** Formulas correct; turned up an unrelated Compatibility Mode issue                     |
-| 4        | The five added chart types                         | `e54265a`            | scatter, radar and comboBarLine build chart XML we had not before                               |
+| ~~4~~    | ~~The five added chart types~~                     | `e54265a`            | **Done.** All five correct; one cosmetic axis issue left open                                   |
 | 5        | pptx sections and comments                         | `cea0bd3`            | Separate parts with their own relationships                                                     |
 | 6        | Docs comments, text boxes, shapes                  | `e113810`            | Floating anchors and a comment part                                                             |
 | 7        | Header/footer, both formats                        | `9e0dd02`, `31f9b34` | Placeholder fields repeated across every page/slide                                             |
@@ -315,6 +315,23 @@ mode 15, registered both in `[Content_Types].xml` and in the document rels — a
 part that is written but not declared is invisible to Word, and one declared but
 missing makes the package invalid. Verified in Word: the title bar reads
 "blank-new" where it previously read "formulas - Compatibility Mode".
+
+**Row 4 — the five added chart types: all correct, one cosmetic issue open.**
+
+Verified in PowerPoint: `scatter` plots its points, `radar` draws four spokes
+with both series as polygons, `comboBarLine` puts the last series on a line
+against a secondary right axis, `barH` is genuinely horizontal, and
+`barPercentStacked` stacks to 100% with the right proportions. No repair prompt,
+all data correct.
+
+Open: on axes with many ticks — the radar's spokes and the percent-stacked
+value axis — PowerPoint draws dense tick marks that read as hatching across the
+plot. Our chart parts emit no `majorTickMark`/`minorTickMark` at all, so this is
+PowerPoint's default rather than something we set. Two hypotheses were tried and
+**both were wrong**: defaulting `majorGridlines` on for radar, and suppressing
+tick marks on the radar axes. Neither changed the rendering, and both were
+reverted rather than committed as unverified "fixes". Whatever causes it is not
+those two things, and it is cosmetic — the data is right in every chart.
 
 A methodology note to go with row 1's: **rebuild before you conclude.** A "no
 fill" screenshot sent me chasing the dxf markup, and a controlled pair differing
