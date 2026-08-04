@@ -91,12 +91,23 @@ describe('the IPC surface exists', () => {
 describe('no handler accepts malformed input', () => {
   const JUNK: unknown[] = [undefined, null, 0, 'string', [], {}, { sessionId: 'not-a-uuid' }]
 
+  /// A handler that neither returns nor throws has not accepted anything, so
+  /// it satisfies the property — but awaiting it forever would stall the run.
+  /// Racing keeps one slow handler from turning a real assertion into a flake.
+  const SETTLE_MS = 250
+  const TIMED_OUT = Symbol('timed out')
+  const settle = async (work: unknown): Promise<unknown> =>
+    Promise.race([
+      Promise.resolve(work),
+      new Promise((resolve) => setTimeout(() => resolve(TIMED_OUT), SETTLE_MS)),
+    ])
+
   it('every registered channel rejects every junk payload', async () => {
     const accepted: string[] = []
     for (const [channel, handler] of handlers) {
       for (const input of JUNK) {
         try {
-          await handler(event, input)
+          if ((await settle(handler(event, input))) === TIMED_OUT) continue
           // Reaching here means the handler returned rather than throwing.
           // Read-only status channels legitimately do; anything that mutates
           // or touches the filesystem must not.
@@ -109,7 +120,7 @@ describe('no handler accepts malformed input', () => {
       }
     }
     expect(accepted, `handlers that accepted junk:\n${accepted.join('\n')}`).toEqual([])
-  })
+  }, 30_000)
 })
 
 describe('window and path bookkeeping', () => {

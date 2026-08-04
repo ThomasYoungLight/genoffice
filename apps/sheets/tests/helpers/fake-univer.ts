@@ -91,8 +91,26 @@ export function fakeSheet(options: FakeSheetOptions = {}) {
       ),
     setValue: (value: unknown) => calls.push(['setValue', row, column, value]),
     setValues: (values: unknown) => calls.push(['setValues', row, column, values]),
-    setFontWeight: (weight: unknown) => calls.push(['setFontWeight', row, column, weight]),
-    setBackground: (colour: unknown) => calls.push(['setBackground', row, column, colour]),
+    ...Object.fromEntries(
+      [
+        'setFontWeight',
+        'setFontStyle',
+        'setFontLine',
+        'setFontSize',
+        'setFontFamily',
+        'setFontColor',
+        'setBackground',
+        'setBorder',
+        'setNumberFormat',
+        'setHorizontalAlignment',
+        'setVerticalAlignment',
+        'setWrap',
+        'merge',
+        'mergeAcross',
+        'breakApart',
+        'sort',
+      ].map((name) => [name, (...args: unknown[]) => calls.push([name, row, column, ...args])]),
+    ),
     getCellStyleData: () => styles[`${row}:${column}`] ?? null,
     getNumberFormat: () => numberFormats[`${row}:${column}`] ?? '',
     getA1Notation: () => `R${row + 1}C${column + 1}`,
@@ -159,6 +177,19 @@ export function fakeSheet(options: FakeSheetOptions = {}) {
     },
     removeTable: (...args: unknown[]) => calls.push(['removeTable', ...args]),
     getTables: () => [],
+    getLastRow: () => rows - 1,
+    getLastColumn: () => columns - 1,
+    hasHiddenGridLines: () => false,
+    ...Object.fromEntries(
+      [
+        'cancelFreeze',
+        'setFreeze',
+        'setColumnWidths',
+        'setRowHeightsForced',
+        'setHiddenGridlines',
+        'zoom',
+      ].map((name) => [name, (...args: unknown[]) => calls.push([name, ...args])]),
+    ),
   }
   return sheet
 }
@@ -183,9 +214,17 @@ export function fakeWorkbook(sheets: FakeSheet[] = [fakeSheet()], definedNames: 
 
 /** The `univerRef.current` shape the renderer modules expect. */
 export function fakeRuntime(workbook: ReturnType<typeof fakeWorkbook> | null = fakeWorkbook()) {
+  const calls: unknown[][] = []
   return {
+    calls,
     univerAPI: {
       getActiveWorkbook: () => workbook,
+      undo: () => calls.push(['undo']),
+      redo: () => calls.push(['redo']),
+      executeCommand: (...args: unknown[]) => {
+        calls.push(['executeCommand', ...args])
+        return Promise.resolve(true)
+      },
     },
   }
 }
