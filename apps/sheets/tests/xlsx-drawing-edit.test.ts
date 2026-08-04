@@ -259,3 +259,166 @@ describe('applyVisualEdits', () => {
     ).rejects.toThrow(VisualEditError)
   })
 })
+
+/**
+ * oneCellAnchor drawings, which have a `from` marker and an extent rather than
+ * two markers. Before resolveAnchorExtent they rendered as a sliver and could
+ * not really be dragged at all, so what the save path does with one had never
+ * been exercised.
+ */
+describe('applyVisualEdits on a oneCellAnchor', () => {
+  const moved = {
+    fromRow: 30,
+    fromColumn: 4,
+    fromRowOffset: 0,
+    fromColumnOffset: 0,
+    toRow: 30,
+    toColumn: 4,
+    toRowOffset: 0,
+    toColumnOffset: 0,
+  }
+
+  it('moves it without turning it into a twoCellAnchor', async () => {
+    const entries = packageWithDrawing()
+    await applyVisualEdits(
+      fakePackage(entries),
+      [{ drawingPath: PATH, drawingIndex: 2, anchor: moved }],
+      new Set<string>(),
+    )
+    const xml = entries.get(PATH)!
+    const anchor = /<xdr:oneCellAnchor>[\s\S]*?<\/xdr:oneCellAnchor>/.exec(xml)?.[0] ?? ''
+    expect(anchor).toContain('<xdr:col>4</xdr:col>')
+    expect(anchor).toContain('<xdr:row>30</xdr:row>')
+    // a `to` marker is not allowed in a oneCellAnchor's content model; writing
+    // one would make Excel repair the file on open
+    expect(anchor).not.toContain('<xdr:to>')
+  })
+
+  it('keeps the extent, which is what still carries its size', async () => {
+    const entries = packageWithDrawing()
+    await applyVisualEdits(
+      fakePackage(entries),
+      [{ drawingPath: PATH, drawingIndex: 2, anchor: moved }],
+      new Set<string>(),
+    )
+    expect(entries.get(PATH)!).toContain('<xdr:ext cx="914400" cy="914400"/>')
+  })
+})
+
+describe('resizing a oneCellAnchor', () => {
+  const resized = {
+    fromRow: 20,
+    fromColumn: 2,
+    fromRowOffset: 0,
+    fromColumnOffset: 0,
+    toRow: 24,
+    toColumn: 5,
+    toRowOffset: 0,
+    toColumnOffset: 0,
+    extWidthEmu: 1828800,
+    extHeightEmu: 457200,
+  }
+
+  it('writes the new size into the extent, the only place it can live', async () => {
+    const entries = packageWithDrawing()
+    await applyVisualEdits(
+      fakePackage(entries),
+      [{ drawingPath: PATH, drawingIndex: 2, anchor: resized }],
+      new Set<string>(),
+    )
+    const xml = entries.get(PATH)!
+    expect(xml).toContain('<xdr:ext cx="1828800" cy="457200"/>')
+    expect(xml).not.toContain('cx="914400"')
+    // still not a twoCellAnchor, and still has no `to` marker
+    expect(xml).toContain('<xdr:oneCellAnchor>')
+    const anchor = /<xdr:oneCellAnchor>[\s\S]*?<\/xdr:oneCellAnchor>/.exec(xml)?.[0] ?? ''
+    expect(anchor).not.toContain('<xdr:to>')
+  })
+
+  it('leaves the extent alone for a plain move, which carries none', async () => {
+    const entries = packageWithDrawing()
+    const { extWidthEmu, extHeightEmu, ...move } = resized
+    void extWidthEmu
+    void extHeightEmu
+    await applyVisualEdits(
+      fakePackage(entries),
+      [{ drawingPath: PATH, drawingIndex: 2, anchor: move }],
+      new Set<string>(),
+    )
+    expect(entries.get(PATH)!).toContain('<xdr:ext cx="914400" cy="914400"/>')
+  })
+})
+
+/**
+ * Drawing parts written with the spreadsheetDrawing namespace as the default
+ * rather than prefixed `xdr:`. Excel prefixes; openpyxl and pandas do not.
+ * Both are valid OOXML, and before this every edit to such a part failed with
+ * "Drawing anchor #N was not found" — the save aborted entirely, so moving a
+ * visual in a script-generated workbook made the file unsaveable.
+ */
+const BARE = (prefix: 'from' | 'to', col: number, row: number): string =>
+  `<${prefix}><col>${col}</col><colOff>0</colOff>` +
+  `<row>${row}</row><rowOff>0</rowOff></${prefix}>`
+
+const BARE_DRAWING =
+  '<wsDr xmlns="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing">' +
+  `<twoCellAnchor>${BARE('from', 0, 0)}${BARE('to', 4, 8)}` +
+  '<pic><blipFill/></pic><clientData/></twoCellAnchor>' +
+  `<oneCellAnchor>${BARE('from', 3, 15)}<ext cx="1524000" cy="762000"/>` +
+  '<pic><blipFill/></pic><clientData/></oneCellAnchor>' +
+  '</wsDr>'
+
+describe('a drawing part with no xdr: prefix', () => {
+  const barePackage = () =>
+    new Map<string, string>([
+      [PATH, BARE_DRAWING],
+      ['xl/drawings/_rels/drawing1.xml.rels', '<Relationships/>'],
+      ['[Content_Types].xml', CONTENT_TYPES],
+    ])
+
+  it('moves a twoCellAnchor and writes the markers back unprefixed', async () => {
+    const entries = barePackage()
+    await applyVisualEdits(
+      fakePackage(entries),
+      [{ drawingPath: PATH, drawingIndex: 0, anchor: ANCHOR }],
+      new Set<string>(),
+    )
+    const xml = entries.get(PATH)!
+    expect(xml).toContain('<from><col>1</col>')
+    expect(xml).toContain('<to><col>7</col>')
+    // `xdr` is never declared in this part, so emitting it would be malformed
+    expect(xml).not.toContain('xdr:')
+  })
+
+  it('resizes a bare oneCellAnchor through its extent', async () => {
+    const entries = barePackage()
+    await applyVisualEdits(
+      fakePackage(entries),
+      [
+        {
+          drawingPath: PATH,
+          drawingIndex: 1,
+          anchor: { ...ANCHOR, extWidthEmu: 2000000, extHeightEmu: 1000000 },
+        },
+      ],
+      new Set<string>(),
+    )
+    const xml = entries.get(PATH)!
+    expect(xml).toContain('<ext cx="2000000" cy="1000000"/>')
+    expect(xml).not.toContain('xdr:')
+    // the sibling twoCellAnchor has a `to`; this one must not gain one
+    const one = /<oneCellAnchor>[\s\S]*?<\/oneCellAnchor>/.exec(xml)?.[0] ?? ''
+    expect(one).not.toContain('<to>')
+  })
+
+  it('removes a bare anchor', async () => {
+    const entries = barePackage()
+    await applyVisualEdits(
+      fakePackage(entries),
+      [{ drawingPath: PATH, drawingIndex: 1, remove: true }],
+      new Set<string>(),
+    )
+    expect(entries.get(PATH)!).not.toContain('<oneCellAnchor>')
+    expect(entries.get(PATH)!).toContain('<twoCellAnchor>')
+  })
+})

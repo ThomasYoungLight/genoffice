@@ -13,6 +13,11 @@ export interface DrawingAnchor {
   readonly toColumn: number
   readonly toRowOffset: number
   readonly toColumnOffset: number
+  /// A oneCellAnchor keeps its size in an extent rather than a `to` marker, so
+  /// a resize has to travel as one — the `to` marker above is derived (see
+  /// resolveAnchorExtent) and has nowhere to be written back to.
+  readonly extWidthEmu?: number | undefined
+  readonly extHeightEmu?: number | undefined
 }
 
 export interface ChartAddSeries {

@@ -8,7 +8,18 @@ import type { MutablePackage } from './xlsx-drawing-add'
 
 export class VisualEditError extends Error {}
 
-const ANCHOR_PATTERN = /<xdr:(twoCellAnchor|oneCellAnchor|absoluteAnchor)\b[\s\S]*?<\/xdr:\1>/g
+/// Excel prefixes the spreadsheetDrawing namespace `xdr:`; openpyxl and pandas
+/// make it the part's default namespace and write the elements bare. Both are
+/// valid, so every pattern here has to accept either — and every replacement
+/// has to give back the prefix the part was already using, since emitting
+/// `xdr:` into a part that never declared it would be malformed.
+const ANCHOR_PATTERN =
+  /<(?:xdr:)?(twoCellAnchor|oneCellAnchor|absoluteAnchor)\b[\s\S]*?<\/(?:xdr:)?\1>/g
+
+/// The prefix this part uses on drawing elements: `xdr:` or nothing.
+function anchorPrefix(anchorXml: string): string {
+  return /^<xdr:/.test(anchorXml) ? 'xdr:' : ''
+}
 
 export async function applyVisualEdits(
   pkg: MutablePackage,
@@ -121,7 +132,7 @@ function applyOneEdit(xml: string, edit: WorkbookVisualEdit, removedChartRelIds:
   if (edit.remove) {
     // A chart's graphicFrame anchor cascades: its rel, part, and override
     // are collected here and removed after the drawing XML is final.
-    if (anchorXml.includes('<xdr:graphicFrame')) {
+    if (/<(?:xdr:)?graphicFrame\b/.test(anchorXml)) {
       const relId = /<c:chart\b[^>]*\br:id="([^"]+)"/.exec(anchorXml)?.[1]
       if (!relId) {
         throw new VisualEditError(
@@ -137,28 +148,41 @@ function applyOneEdit(xml: string, edit: WorkbookVisualEdit, removedChartRelIds:
   if (kind === 'absoluteAnchor') {
     throw new VisualEditError('This visual uses an absolute anchor — moving it is not supported.')
   }
+  const q = anchorPrefix(anchorXml)
   const from =
-    `<xdr:from><xdr:col>${anchor.fromColumn}</xdr:col>` +
-    `<xdr:colOff>${anchor.fromColumnOffset}</xdr:colOff>` +
-    `<xdr:row>${anchor.fromRow}</xdr:row>` +
-    `<xdr:rowOff>${anchor.fromRowOffset}</xdr:rowOff></xdr:from>`
-  let patched = anchorXml.replace(/<xdr:from>[\s\S]*?<\/xdr:from>/, () => from)
-  if (patched === anchorXml && !anchorXml.includes('<xdr:from>')) {
+    `<${q}from><${q}col>${anchor.fromColumn}</${q}col>` +
+    `<${q}colOff>${anchor.fromColumnOffset}</${q}colOff>` +
+    `<${q}row>${anchor.fromRow}</${q}row>` +
+    `<${q}rowOff>${anchor.fromRowOffset}</${q}rowOff></${q}from>`
+  let patched = anchorXml.replace(/<(?:xdr:)?from>[\s\S]*?<\/(?:xdr:)?from>/, () => from)
+  if (patched === anchorXml && !/<(?:xdr:)?from>/.test(anchorXml)) {
     throw new VisualEditError('Drawing anchor has no from marker — moving it is not supported.')
   }
   if (kind === 'twoCellAnchor') {
     const to =
-      `<xdr:to><xdr:col>${anchor.toColumn}</xdr:col>` +
-      `<xdr:colOff>${anchor.toColumnOffset}</xdr:colOff>` +
-      `<xdr:row>${anchor.toRow}</xdr:row>` +
-      `<xdr:rowOff>${anchor.toRowOffset}</xdr:rowOff></xdr:to>`
+      `<${q}to><${q}col>${anchor.toColumn}</${q}col>` +
+      `<${q}colOff>${anchor.toColumnOffset}</${q}colOff>` +
+      `<${q}row>${anchor.toRow}</${q}row>` +
+      `<${q}rowOff>${anchor.toRowOffset}</${q}rowOff></${q}to>`
     // An unchanged edge replaces to an identical string, so presence must be
     // checked directly (an NW resize touches only the from marker).
-    const withTo = patched.replace(/<xdr:to>[\s\S]*?<\/xdr:to>/, () => to)
-    if (withTo === patched && !patched.includes('<xdr:to>')) {
+    const withTo = patched.replace(/<(?:xdr:)?to>[\s\S]*?<\/(?:xdr:)?to>/, () => to)
+    if (withTo === patched && !/<(?:xdr:)?to>/.test(patched)) {
       throw new VisualEditError('Drawing anchor has no to marker — moving it is not supported.')
     }
     patched = withTo
+  }
+  if (kind === 'oneCellAnchor' && anchor.extWidthEmu !== undefined) {
+    // Its size lives in the extent, not in a second marker, so a resize can
+    // only be written here. A move leaves the extent alone and carries none.
+    const extent =
+      `<${q}ext cx="${Math.max(1, Math.round(anchor.extWidthEmu))}"` +
+      ` cy="${Math.max(1, Math.round(anchor.extHeightEmu ?? anchor.extWidthEmu))}"/>`
+    const withExt = patched.replace(/<(?:xdr:)?ext\b[^>]*\/>/, () => extent)
+    if (withExt === patched) {
+      throw new VisualEditError('Drawing anchor has no extent — resizing it is not supported.')
+    }
+    patched = withExt
   }
   return xml.slice(0, match.index) + patched + xml.slice(match.index + anchorXml.length)
 }

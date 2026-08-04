@@ -83,6 +83,27 @@ were named there too, and the symptom was indistinguishable from the parser
 never emitting them; and the fix is only trustworthy because the same file was
 opened in Excel and shown to span the same cells.
 
+### And a third, found by verifying the second
+
+Making the drawing usable meant it could be dragged, and dragging it made the
+**save fail outright**: `Drawing anchor #1 was not found — the file may have
+changed`. `xlsx-drawing-edit.ts` matched `<xdr:twoCellAnchor>` and friends with
+the `xdr:` prefix hard-coded. Excel prefixes the spreadsheetDrawing namespace;
+openpyxl and pandas make it the part's *default* namespace and write the
+elements bare. Both are valid, so in any script-generated workbook every
+visual edit — move, resize, delete — aborted the whole save.
+
+Fixed by accepting either form and writing back whichever the part already
+used: emitting `xdr:` into a part that never declared it would be malformed,
+which is the failure this could easily have been "fixed" into.
+
+A oneCellAnchor also keeps its size in the extent, so a *resize* has to travel
+back as a new extent — the derived `to` marker has nowhere to be written. That
+now happens; a plain move carries no extent and leaves it alone.
+
+Verified end to end: drag, save, open in Excel — no repair prompt, and the
+image sits where it was dropped.
+
 ## Background: three different package architectures
 
 Everything below turns on one fact, so it is worth stating plainly. The three

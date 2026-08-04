@@ -739,6 +739,10 @@ function EditableShapeVisual({
         }
       }
     }
+    // A oneCellAnchor keeps its size in an extent, and the `to` marker it is
+    // being edited through was derived from that extent — so a resize has to
+    // travel back as a new extent or the save has nowhere to put it.
+    const carriesExtent = anchor.extWidthEmu !== undefined
     const next = {
       fromRow: fromY.index,
       fromColumn: fromX.index,
@@ -748,6 +752,18 @@ function EditableShapeVisual({
       toColumn: toX.index,
       toRowOffset: Math.round(toY.offset * EMU_PER_PIXEL),
       toColumnOffset: Math.round(toX.offset * EMU_PER_PIXEL),
+      ...(carriesExtent
+        ? {
+            extWidthEmu: Math.max(
+              1,
+              Math.round(markerSpan(fromX, toX, columnWidth) * EMU_PER_PIXEL),
+            ),
+            extHeightEmu: Math.max(
+              1,
+              Math.round(markerSpan(fromY, toY, rowHeight) * EMU_PER_PIXEL),
+            ),
+          }
+        : {}),
     }
     if (
       next.fromRow === anchor.fromRow &&
