@@ -66,7 +66,9 @@ describe('applyAiPivotAdd: the sheet must exist', () => {
     // A session-added sheet has no worksheet part yet, so the pivot's
     // relationships would point at nothing in the written file.
     const { runtime, state } = setup()
-    ;(state as never as ReturnType<typeof fakeLazyState>).editJournal.sheets.added.add('sheet-1')
+    ;(state as never as ReturnType<typeof fakeLazyState>).editJournal.sheets.added.set('sheet-1', {
+      name: 'Sheet1',
+    })
     expect(() => applyAiPivotAdd(runtime, state, pivot())).toThrow()
   })
 })

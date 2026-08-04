@@ -127,7 +127,7 @@ describe('protectSheetGuard', () => {
 
   it('allows protecting a sheet added this session, which has no file state', () => {
     const state = fakeLazyState()
-    state.editJournal.sheets.added.add('sheet-1')
+    state.editJournal.sheets.added.set('sheet-1', { name: 'Sheet1' })
     expect(protectSheetGuard(state as never, 'sheet-1', true)).toBeNull()
   })
 

@@ -14,6 +14,7 @@
  */
 
 import { parseAddress } from '../../src/domain/cell-address'
+import { createEditJournal } from '../../src/renderer/edit-journal'
 
 export interface FakeRangeOptions {
   values?: unknown[][]
@@ -220,6 +221,10 @@ export function fakeRuntime(workbook: ReturnType<typeof fakeWorkbook> | null = f
     univerAPI: {
       getActiveWorkbook: () => workbook,
       undo: () => calls.push(['undo']),
+      registerComponent: (...args: unknown[]) => {
+        calls.push(['registerComponent', ...args])
+        return { dispose: () => undefined }
+      },
       redo: () => calls.push(['redo']),
       executeCommand: (...args: unknown[]) => {
         calls.push(['executeCommand', ...args])
@@ -272,18 +277,10 @@ export function fakeLazyState(
     formulaMode: false,
     pivotDefinitions: new Map(),
     flags: { preloadComplete: true, indexingComplete: true },
-    editJournal: {
-      visualAdds: [],
-      visualEdits: new Map(),
-      chartEdits: new Map(),
-      pageSetup: new Map(),
-      tableAdds: [],
-      pivotAdds: [],
-      sheets: { hidden: new Map(), added: new Set(), removed: new Set(), renamed: new Map() },
-      sheetProtection: new Map(),
-      definedNames: new Map(),
-      cells: new Map(),
-    },
+    // The real journal, not a hand-rolled stand-in: it has a dozen
+    // collections and the code under test iterates most of them, so guessing
+    // the shape field-by-field was strictly worse than constructing it.
+    editJournal: createEditJournal(),
   }
 }
 
