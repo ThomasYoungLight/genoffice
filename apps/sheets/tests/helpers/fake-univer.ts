@@ -64,6 +64,8 @@ export function fakeSheet(options: FakeSheetOptions = {}) {
   } = options
 
   const cellAt = (row: number, column: number): unknown => cells[`${row}:${column}`] ?? null
+  /** every mutation the code under test asked for, in order */
+  const calls: unknown[][] = []
 
   const range = (row: number, column: number, numRows = 1, numColumns = 1) => ({
     getRow: () => row,
@@ -87,6 +89,10 @@ export function fakeSheet(options: FakeSheetOptions = {}) {
       Array.from({ length: numRows }, (_, r) =>
         Array.from({ length: numColumns }, (_, c) => formulas[`${row + r}:${column + c}`] ?? ''),
       ),
+    setValue: (value: unknown) => calls.push(['setValue', row, column, value]),
+    setValues: (values: unknown) => calls.push(['setValues', row, column, values]),
+    setFontWeight: (weight: unknown) => calls.push(['setFontWeight', row, column, weight]),
+    setBackground: (colour: unknown) => calls.push(['setBackground', row, column, colour]),
     getCellStyleData: () => styles[`${row}:${column}`] ?? null,
     getNumberFormat: () => numberFormats[`${row}:${column}`] ?? '',
     getA1Notation: () => `R${row + 1}C${column + 1}`,
@@ -99,6 +105,7 @@ export function fakeSheet(options: FakeSheetOptions = {}) {
   })
 
   const sheet = {
+    calls,
     getSheetId: () => id,
     getSheetName: () => name,
     getMaxRows: () => rows,
@@ -137,11 +144,31 @@ export function fakeSheet(options: FakeSheetOptions = {}) {
       return range(row, column, 1, 1)
     },
     addFloatDomToRange: () => ({ dispose: () => undefined }),
+    // Mutations record rather than apply: these tests are about which call the
+    // application layer decides to make, not about Univer carrying it out.
+    insertRowsBefore: (row: number, count: number) => calls.push(['insertRowsBefore', row, count]),
+    insertRowsAfter: (row: number, count: number) => calls.push(['insertRowsAfter', row, count]),
+    deleteRows: (row: number, count: number) => calls.push(['deleteRows', row, count]),
+    insertColumnsBefore: (col: number, count: number) =>
+      calls.push(['insertColumnsBefore', col, count]),
+    deleteColumns: (col: number, count: number) => calls.push(['deleteColumns', col, count]),
+    setValues: (values: unknown) => calls.push(['setValues', values]),
+    addTable: (...args: unknown[]) => {
+      calls.push(['addTable', ...args])
+      return true
+    },
+    removeTable: (...args: unknown[]) => calls.push(['removeTable', ...args]),
+    getTables: () => [],
   }
   return sheet
 }
 
 export type FakeSheet = ReturnType<typeof fakeSheet>
+
+/** The mutations a fake sheet was asked to perform. */
+export function mutationsOf(sheet: FakeSheet): unknown[][] {
+  return (sheet as unknown as { calls: unknown[][] }).calls
+}
 
 export function fakeWorkbook(sheets: FakeSheet[] = [fakeSheet()], definedNames: unknown[] = []) {
   const active = sheets[0]
@@ -203,12 +230,15 @@ export function fakeLazyState(
     appliedFilterSheets: new Set(),
     appliedDvSheets: new Set(),
     sheetProtections: new Map(),
-    flags: { preloadComplete: true },
+    formulaMode: false,
+    pivotDefinitions: new Map(),
+    flags: { preloadComplete: true, indexingComplete: true },
     editJournal: {
       visualAdds: [],
       visualEdits: new Map(),
       chartEdits: new Map(),
       pageSetup: new Map(),
+      tableAdds: [],
       sheets: { hidden: new Map(), added: [], removed: new Set(), renamed: new Map() },
       sheetProtection: new Map(),
       definedNames: new Map(),

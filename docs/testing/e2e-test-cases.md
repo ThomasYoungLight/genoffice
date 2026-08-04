@@ -234,10 +234,10 @@ layer, never in a component.
 
 | | statements | |
 | --- | --- | --- |
-| application layer (`.ts`) | 7726/14845 | **52.0%** |
+| application layer (`.ts`) | 7838/14845 | **52.8%** |
 | UI components (`.tsx`) | 88/3775 | 2.3% |
 
-Reaching 80% of the application layer needs **4,150 more covered statements**,
+Reaching 80% of the application layer needs **4,032 more covered statements**,
 and they are concentrated in ten files:
 
 | uncovered | cumulative | file |
@@ -245,13 +245,13 @@ and they are concentrated in ten files:
 | 1274 | 1274 | `renderer/univer-sync.ts` |
 | 908 | 2182 | `main/sheets-main.ts` |
 | 615 | 2797 | `renderer/ribbon-actions.ts` |
-| 595 | 3392 | `renderer/workbook-ops.ts` |
+| 542 | 3392 | `renderer/workbook-ops.ts` (mostly one ~660-line function, `applyAiPivotAdd`) |
 | 523 | 3915 | `preload/index.ts` |
 | 342 | 4257 | `renderer/pivot-actions.ts` |
 | 276 | 4533 | `renderer/data-tools-actions.ts` |
 | 232 | 4765 | `renderer/visual-actions.ts` |
 | 221 | 4986 | `renderer/visual-edit-sync.ts` |
-| 200 | 5186 | `renderer/plan-operations.ts` |
+| 147 | 5186 | `renderer/plan-operations.ts` |
 
 Covering ~80% of those ten reaches the target almost exactly. They are all
 tractable for the same reason: each was extracted from App.tsx so that "every
@@ -260,7 +260,18 @@ the runtime. `tests/helpers/fake-univer.ts` is that double and is already in
 place — building it was the bulk of the cost for the first file, and it is
 reusable across the remaining nine.
 
-Two lessons from doing the first one, worth having before starting the rest:
+### Measured rate, so the estimate is not a guess
+
+Four test files written so far moved the layer 51.0% -> 52.8%: roughly **120
+statements, or +0.8 points, per test file** of 12-20 cases. On that rate 80%
+is about thirty more files — but the rate is misleading in both directions.
+The remaining mass is concentrated in a few very large functions
+(`applyAiPivotAdd` alone is ~660 lines, `univer-sync.ts` is 1,274 uncovered
+statements), and one test that drives a long function end to end covers far
+more than one that checks a guard. The realistic figure is **several dedicated
+days**, not a single session.
+
+Three lessons from the files done so far, worth having before starting the rest:
 
 - **Derive the double's shape from the consumer, not the schema.** Grepping
   `fileMeta.` and `state.editJournal.` in the module under test gives the exact
@@ -269,6 +280,10 @@ Two lessons from doing the first one, worth having before starting the rest:
 - **A failing assertion is as likely to be a wrong expectation as a bug.**
   `readFormats` returning nothing for an unstyled cell looked like a defect and
   is the correct, deliberate contract — it keeps the agent's payload small.
+- **Let the missing-method errors drive the double.** Adding `setValue`,
+  `addTable`, `insertRowsBefore` and the rest one failure at a time is faster
+  than reading the facade, and it keeps the double honest: it grows to exactly
+  what the application layer actually calls, and nothing else.
 
 ## Coverage result
 
