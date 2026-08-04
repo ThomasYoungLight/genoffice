@@ -310,10 +310,11 @@ compat setting Word assumes an older format, disables newer features and says so
 in the title bar. It affects new documents only — a document opened from an
 existing file keeps its original settings part through the patch-based save.
 
-The fix is a `settings.xml` declaring compatibility mode 15, plus its
-content-type override and relationship. Not done here: it is unrelated to the
-row and wants its own change and its own Word check. Worth doing early, since it
-is visible on every document the product creates.
+**Fixed.** `buildBlankDocx` now writes a `settings.xml` declaring compatibility
+mode 15, registered both in `[Content_Types].xml` and in the document rels — a
+part that is written but not declared is invisible to Word, and one declared but
+missing makes the package invalid. Verified in Word: the title bar reads
+"blank-new" where it previously read "formulas - Compatibility Mode".
 
 A methodology note to go with row 1's: **rebuild before you conclude.** A "no
 fill" screenshot sent me chasing the dxf markup, and a controlled pair differing

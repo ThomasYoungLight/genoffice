@@ -152,6 +152,21 @@ export interface BlankDocxOptions {
 
 /** Build a minimal valid .docx: one empty paragraph, A4 portrait, standard styles. */
 export async function buildBlankDocx(options?: BlankDocxOptions): Promise<Uint8Array> {
+  /**
+   * Word decides a document's feature level from `compatibilityMode`. With no
+   * settings part at all it assumes an old one, disables newer features and
+   * labels the title bar "Compatibility Mode" — which every document this
+   * function creates did, until someone opened one in Word and looked.
+   *
+   * 15 is Word 2013 and later, the level Word itself writes for a new document.
+   */
+  const SETTINGS_XML =
+    `${XML_DECL}<w:settings ${DOC_NS}>` +
+    '<w:compat>' +
+    '<w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/>' +
+    '</w:compat>' +
+    '</w:settings>'
+
   const zip = new JSZip()
 
   zip.file(
@@ -162,6 +177,7 @@ export async function buildBlankDocx(options?: BlankDocxOptions): Promise<Uint8A
       '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
       '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>' +
       '<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>' +
+      '<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>' +
       '</Types>',
   )
 
@@ -177,11 +193,13 @@ export async function buildBlankDocx(options?: BlankDocxOptions): Promise<Uint8A
     `${XML_DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
       '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
       '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>' +
+      '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>' +
       '</Relationships>',
   )
 
   zip.file('word/styles.xml', stylesXml(options?.eastAsiaFont))
   zip.file('word/numbering.xml', NUMBERING_XML)
+  zip.file('word/settings.xml', SETTINGS_XML)
 
   const sectPr =
     '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>' +

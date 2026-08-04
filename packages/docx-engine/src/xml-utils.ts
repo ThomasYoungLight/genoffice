@@ -21,7 +21,7 @@ export {
   type XNode,
 } from '@genoffice/omml'
 
-import { attrsOf, childrenOf, findChild, findChildren, nameOf, type XNode } from '@genoffice/omml'
+import { attrsOf, childrenOf, findChild, nameOf, type XNode } from '@genoffice/omml'
 
 /**
  * Direct children with `name`, looking through w:sdt → w:sdtContent wrappers
