@@ -234,10 +234,10 @@ layer, never in a component.
 
 | | statements | |
 | --- | --- | --- |
-| application layer (`.ts`) | 7838/14845 | **52.8%** |
+| application layer (`.ts`) | 8368/14845 | **56.4%** |
 | UI components (`.tsx`) | 88/3775 | 2.3% |
 
-Reaching 80% of the application layer needs **4,032 more covered statements**,
+Reaching 80% of the application layer needs **3,508 more covered statements**,
 and they are concentrated in ten files:
 
 | uncovered | cumulative | file |
@@ -262,13 +262,23 @@ reusable across the remaining nine.
 
 ### Measured rate, so the estimate is not a guess
 
-Four test files written so far moved the layer 51.0% -> 52.8%: roughly **120
-statements, or +0.8 points, per test file** of 12-20 cases. On that rate 80%
-is about thirty more files — but the rate is misleading in both directions.
-The remaining mass is concentrated in a few very large functions
-(`applyAiPivotAdd` alone is ~660 lines, `univer-sync.ts` is 1,274 uncovered
-statements), and one test that drives a long function end to end covers far
-more than one that checks a guard. The realistic figure is **several dedicated
+Seven test files have moved the layer **51.0% -> 56.4%**, and the per-file
+yield depends almost entirely on what the file targets:
+
+| target | yield |
+| ------ | ----- |
+| small modules, guard-by-guard (`workbook-readers`, `plan-operations`) | +0.8 pts each |
+| one very large function (`applyAiPivotAdd`, 660 lines) | **+1.6 pts** |
+| a whole IPC surface as one property (`sheets-main`, 40 channels) | **+1.7 pts** |
+| scattered pure helpers in a huge file (`univer-sync`) | +0.3 pts |
+
+So the strategy that works is: **find the biggest single function or the
+widest uniform surface, and drive that**. Picking off pure helpers from a
+large file is the worst ratio measured — `univer-sync.ts` moved 7.3% -> 10.5%
+for thirty tests, because its mass is in `syncUniver` and
+`loadSnapshotIntoUniver`, which need a live Univer rather than a double.
+
+At the good rate, 80% is roughly fifteen more focused files: **a few dedicated
 days**, not a single session.
 
 Three lessons from the files done so far, worth having before starting the rest:
