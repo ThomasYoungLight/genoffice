@@ -1690,7 +1690,17 @@ function expandWorksheetDimensionToCells(worksheetXml: string): string {
   if (dimension) {
     return worksheetXml.replace(/(<dimension\b[^>]*\bref=")[^"]+("[^>]*\/?>)/, `$1${reference}$2`)
   }
-  return worksheetXml.replace(/(<worksheet\b[^>]*>)/, `$1<dimension ref="${reference}"/>`)
+  // CT_Worksheet fixes the order: sheetPr, then dimension. Inserting straight
+  // after <worksheet> puts dimension first whenever the sheet has a sheetPr and
+  // no dimension of its own — a tab colour with no dimension is enough — and
+  // Excel repairs the file rather than opening it.
+  const tag = `<dimension ref="${reference}"/>`
+  const sheetPr = /<sheetPr\b[^>]*\/>|<sheetPr\b[^>]*>[\s\S]*?<\/sheetPr>/.exec(worksheetXml)
+  if (sheetPr) {
+    const end = sheetPr.index + sheetPr[0].length
+    return worksheetXml.slice(0, end) + tag + worksheetXml.slice(end)
+  }
+  return worksheetXml.replace(/(<worksheet\b[^>]*>)/, `$1${tag}`)
 }
 
 function serializeStyledCell(

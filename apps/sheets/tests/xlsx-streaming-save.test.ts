@@ -58,6 +58,37 @@ describe('saveWorkbookViaSidecar', () => {
     )
   })
 
+  it('keeps dimension after sheetPr, which is the order the schema fixes', async () => {
+    // a sheet with a tab colour and no dimension of its own: inserting the
+    // dimension straight after <worksheet> puts it before sheetPr, and Excel
+    // repairs the file instead of opening it
+    const sourcePath = join(directory, 'sheetpr-source.xlsx')
+    const targetPath = join(directory, 'sheetpr-saved.xlsx')
+    await writeFile(sourcePath, await buildEditFixture())
+
+    const rawSheet =
+      '<?xml version="1.0" encoding="UTF-8"?>\n' +
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">\n' +
+      '  <sheetPr><tabColor rgb="FF00B050"/></sheetPr>\n' +
+      '  <sheetData><row r="1"><c r="C1"><v>5</v></c></row></sheetData>\n' +
+      '</worksheet>'
+
+    await saveWorkbookViaSidecar({
+      client,
+      sourcePath,
+      targetPath,
+      edits: [{ sheetName: 'Data', row: 0, column: 0, writeValue: true, cell: { value: 'World' } }],
+      rawParts: new Map([['xl/worksheets/sheet1.xml', rawSheet]]),
+    })
+
+    const saved =
+      (await (await JSZip.loadAsync(await readFile(targetPath)))
+        .file('xl/worksheets/sheet1.xml')
+        ?.async('text')) ?? ''
+    expect(saved.indexOf('<sheetPr')).toBeGreaterThan(-1)
+    expect(saved.indexOf('<dimension')).toBeGreaterThan(saved.indexOf('</sheetPr>'))
+  })
+
   it('composes a raw edit with a model edit to the same part', async () => {
     const sourcePath = join(directory, 'raw-both-source.xlsx')
     const targetPath = join(directory, 'raw-both-saved.xlsx')
