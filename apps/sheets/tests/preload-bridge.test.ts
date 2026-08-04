@@ -323,3 +323,75 @@ describe('AI bridge responses are validated too', () => {
     await expect(api('aiCliStatus')('claude' as never)).resolves.toMatchObject({ installed: false })
   })
 })
+
+/**
+ * Table-driven sweep of the rest of the bridge.
+ *
+ * Every method here takes structured input and validates it before forwarding.
+ * The specific shapes differ, but the contract does not: junk must be refused
+ * at this layer, because past it the main process trusts what it is given.
+ * Asserting that uniformly is worth more than a bespoke case per method — it
+ * is the property that must hold for all of them, including ones added later.
+ */
+describe('no bridge method forwards junk', () => {
+  const JUNK: unknown[] = [undefined, null, 42, 'string', [], {}, { sessionId: 'not-a-uuid' }]
+
+  const structured = [
+    'readWorkbookRange',
+    'readWorkbookFormulas',
+    'recalcWorkbook',
+    'readWorkbookMedia',
+    'readLocalImage',
+    'readPivotDefinition',
+    'listRawParts',
+    'readRawPart',
+    'editRawPart',
+    'saveWorkbookEdits',
+    'writeWorkbookRecovery',
+    'exportPdf',
+    'renderPreview',
+    'closeWorkbook',
+  ]
+
+  it.each(structured)('%s refuses every junk input', async (name) => {
+    for (const input of JUNK) {
+      invoke.mockReset()
+      await expect(api(name)(input as never)).rejects.toThrow()
+      expect(invoke, `${name} forwarded ${JSON.stringify(input)}`).not.toHaveBeenCalled()
+    }
+  })
+
+  it('every listed method actually exists, so a rename cannot silently skip it', () => {
+    for (const name of structured) expect(() => api(name)).not.toThrow()
+  })
+})
+
+describe('response validation is not optional either', () => {
+  const validRange = {
+    sessionId: SESSION,
+    sheetId: 'sheet-1',
+    range: { startRow: 0, endRow: 1, startColumn: 0, endColumn: 1 },
+  }
+
+  it.each([
+    ['null', null],
+    ['a string', 'ok'],
+    ['an empty object', {}],
+    ['an array', []],
+  ])('readWorkbookRange refuses %s as a response', async (_label, response) => {
+    invoke.mockResolvedValue(response)
+    await expect(api('readWorkbookRange')(validRange as never)).rejects.toThrow()
+  })
+
+  it('listRawParts refuses a response whose parts are not a list', async () => {
+    invoke.mockResolvedValue({ parts: 'xl/workbook.xml' })
+    await expect(api('listRawParts')({ sessionId: SESSION } as never)).rejects.toThrow()
+  })
+
+  it('readRawPart refuses a response with no ok flag', async () => {
+    invoke.mockResolvedValue({ text: '<x/>' })
+    await expect(
+      api('readRawPart')({ sessionId: SESSION, ref: 'xl/workbook.xml' } as never),
+    ).rejects.toThrow()
+  })
+})

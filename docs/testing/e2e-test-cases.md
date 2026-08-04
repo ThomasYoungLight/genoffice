@@ -223,6 +223,53 @@ Automated results are from `npx vitest run --root apps/sheets`.
 | E9 preload boundary | **pass** | automated, `preload-bridge.test.ts`, 53 cases |
 | E10 autosave recovery | **partial** | the prompt appeared on reopen after the app was killed, and Discard correctly loaded the on-disk file. **Restore was not exercised** — the half that actually recovers work is unverified |
 
+## Coverage target: the application layer
+
+The meaningful target is the **application layer** — every `.ts` under
+`apps/sheets/src`, i.e. domain, gateway, main, preload, shared, and the
+renderer's non-component logic. It excludes `.tsx` React components, which sit
+at 2.3% and are the wrong place to spend testing effort in this codebase: every
+defect found in this project to date has been in format logic or a boundary
+layer, never in a component.
+
+| | statements | |
+| --- | --- | --- |
+| application layer (`.ts`) | 7726/14845 | **52.0%** |
+| UI components (`.tsx`) | 88/3775 | 2.3% |
+
+Reaching 80% of the application layer needs **4,150 more covered statements**,
+and they are concentrated in ten files:
+
+| uncovered | cumulative | file |
+| --------: | ---------: | ---- |
+| 1274 | 1274 | `renderer/univer-sync.ts` |
+| 908 | 2182 | `main/sheets-main.ts` |
+| 615 | 2797 | `renderer/ribbon-actions.ts` |
+| 595 | 3392 | `renderer/workbook-ops.ts` |
+| 523 | 3915 | `preload/index.ts` |
+| 342 | 4257 | `renderer/pivot-actions.ts` |
+| 276 | 4533 | `renderer/data-tools-actions.ts` |
+| 232 | 4765 | `renderer/visual-actions.ts` |
+| 221 | 4986 | `renderer/visual-edit-sync.ts` |
+| 200 | 5186 | `renderer/plan-operations.ts` |
+
+Covering ~80% of those ten reaches the target almost exactly. They are all
+tractable for the same reason: each was extracted from App.tsx so that "every
+function receives its runtime and state explicitly", so a test double supplies
+the runtime. `tests/helpers/fake-univer.ts` is that double and is already in
+place — building it was the bulk of the cost for the first file, and it is
+reusable across the remaining nine.
+
+Two lessons from doing the first one, worth having before starting the rest:
+
+- **Derive the double's shape from the consumer, not the schema.** Grepping
+  `fileMeta.` and `state.editJournal.` in the module under test gives the exact
+  field list in one step; guessing from the Zod schema took several rounds,
+  because the readers dereference fields the schema marks optional.
+- **A failing assertion is as likely to be a wrong expectation as a bug.**
+  `readFormats` returning nothing for an unstyled cell looked like a defect and
+  is the correct, deliberate contract — it keeps the agent's payload small.
+
 ## Coverage result
 
 Measured on `apps/sheets/src/**`, 1,019 tests:
