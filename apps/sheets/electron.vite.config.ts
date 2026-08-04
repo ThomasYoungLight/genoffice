@@ -12,6 +12,7 @@ export default defineConfig({
         exclude: [
           '@genoffice/ai-provider',
           '@genoffice/agent-core',
+          '@genoffice/ai-cli',
           '@genoffice/ai-search',
           '@genoffice/file-parse',
           '@genoffice/electron-utils',

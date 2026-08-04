@@ -30,6 +30,7 @@ export default defineConfig({
           '@genoffice/pptx-engine',
           '@genoffice/pptx-render',
           '@genoffice/ai-search',
+          '@genoffice/ai-cli',
           '@genoffice/file-parse',
           '@genoffice/electron-utils',
           'opentype.js',
